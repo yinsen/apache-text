@@ -1,0 +1,14 @@
+#! /bin/sh
+#
+# Created by configure
+
+"./configure" \
+"--prefix=/usr/local/apache2" \
+"--enable-so" \
+"--enable-mods-shared=all" \
+"--enable-cgi" \
+"--enable-rewrite" \
+"--enable-deflate" \
+"--with-apr=/usr/local/apr" \
+"--with-apr-util=/usr/local/apr-util" \
+"$@"
