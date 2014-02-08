@@ -1,0 +1,171 @@
+http://www.wealink.com/zhiwei/view/3578068/
+http://www.wealink.com/zhiwei/view/3580596/
+http://www.wealink.com/zhiwei/view/3580723/
+
+
+
+上海Office中的布局：
+
+192.168.20.1中部署的是T平台的Tomcat服务器
+192.168.20.2中部署的是map的Apache分发总口，没有FastCGI；module/下有httpd.exp  libphp5.so*  mod_authz_svn.so*  mod_dav_svn.so*  mod_dontdothat.so，
+		开通了199，22端口（为何没有开通8080端口？）
+192.168.20.3～192.168.20.5部署的是Apache的FastCGI，module/下有mod_fastcgi.so与httpd.exp；
+		三台机器都开通了199，22端口
+		其中20.3与20.5还开通了8080端口，估计是FastCGI的监听端口。（为何20.4不打开8080？估计是漏了）
+192.168.20.6是map的db，有mysql与pgsql，这里应该只要用pgsql。但好像pgsql也没有使用，端口也只开了199与22
+192.168.20.7是auth的db，也有mysql与pgsql，这里好像只用了mysql，端口开了199、22与3306
+
+192.168.20.9改为192.168.20.29，部署的是OpenVPN，端口为：
+	[root@openvpn01 ~]# netstat -ntpl
+	Active Internet connections (only servers)
+	Proto Recv-Q Send-Q Local Address               Foreign Address             State       PID/Program name   
+	tcp        0      0 127.0.0.1:199               0.0.0.0:*                   LISTEN      2039/snmpd          
+	tcp        0      0 127.0.0.1:7505              0.0.0.0:*                   LISTEN      2013/openvpn        
+	tcp        0      0 0.0.0.0:22                  0.0.0.0:*                   LISTEN      2600/sshd           
+	tcp        0      0 0.0.0.0:25                  0.0.0.0:*                   LISTEN      2659/master
+
+192.168.20.10是hobbit监视服务器，端口为
+	[root@hobbit01 ~]# netstat -ntpl
+	Active Internet connections (only servers)
+	Proto Recv-Q Send-Q Local Address               Foreign Address             State       PID/Program name   
+	tcp        0      0 0.0.0.0:111                 0.0.0.0:*                   LISTEN      1132/rpcbind        
+	tcp        0      0 0.0.0.0:22                  0.0.0.0:*                   LISTEN      1336/sshd           
+	tcp        0      0 127.0.0.1:631               0.0.0.0:*                   LISTEN      1223/cupsd          
+	tcp        0      0 127.0.0.1:25                0.0.0.0:*                   LISTEN      1420/master         
+	tcp        0      0 0.0.0.0:50368               0.0.0.0:*                   LISTEN      1150/rpc.statd      
+	tcp        0      0 0.0.0.0:5672                0.0.0.0:*                   LISTEN      1463/qpidd          
+	tcp        0      0 :::111                      :::*                        LISTEN      1132/rpcbind        
+	tcp        0      0 :::22                       :::*                        LISTEN      1336/sshd           
+	tcp        0      0 ::1:631                     :::*                        LISTEN      1223/cupsd          
+	tcp        0      0 ::1:25                      :::*                        LISTEN      1420/master         
+	tcp        0      0 :::45386                    :::*                        LISTEN      1150/rpc.statd
+
+	而且20.10上还部署了Apache。module/下有：
+	httpd.exp       mod_auth_anon.so    mod_cern_meta.so  mod_env.so         mod_include.so       mod_mime.so         mod_status.so     mod_vhost_alias.so
+	mod_access.so   mod_auth_dbm.so     mod_cgi.so        mod_expires.so     mod_info.so          mod_negotiation.so  mod_unique_id.so
+	mod_actions.so  mod_auth_digest.so  mod_dav_fs.so     mod_ext_filter.so  mod_log_config.so    mod_rewrite.so      mod_userdir.so
+	mod_alias.so    mod_auth.so         mod_dav.so        mod_headers.so     mod_log_forensic.so  mod_setenvif.so     mod_usertrack.so
+	mod_asis.so     mod_autoindex.so    mod_dir.so        mod_imap.so        mod_mime_magic.so    mod_speling.so      mod_version.so
+
+
+
+
+
+
+
+
+
+
+
+
+
+Softbank部署：
+192.168.1.10 webmap服务器的Apache总口部署：
+	1. Apache部署不是默认的形式，放在/usr/local/apache2下，而是按照系统安装的办法，其中：
+		1）apache的bin中的apachecthl等命令混入在/usr/sbin/下面；
+		2）apache的conf放在/etc/httpd/下面；
+		3）apache的log放在/var/log/httpd/下面；
+		4）apache的lib放在/usr/lib/下面：
+		5）apache的mod放在/usr/lib/httpd/modules/下面
+			[root@web01 modules]# ls
+			mod_actions.so*        mod_authn_file.so*       mod_cern_meta.so*   mod_env.so*         mod_ldap.so*            mod_proxy_connect.so*  mod_suexec.so*
+			mod_alias.so*          mod_authnz_ldap.so*      mod_cgid.so*        mod_expires.so*     mod_log_config.so*      mod_proxy_ftp.so*      mod_unique_id.so*
+			mod_asis.so*           mod_authz_dbm.so*        mod_cgi.so*         mod_ext_filter.so*  mod_log_forensic.so*    mod_proxy_http.so*     mod_userdir.so*
+			mod_auth_basic.so*     mod_authz_default.so*    mod_dav_fs.so*      mod_file_cache.so*  mod_logio.so*           mod_proxy.so*          mod_usertrack.so*
+			mod_auth_digest.so*    mod_authz_groupfile.so*  mod_dav.so*         mod_filter.so*      mod_mem_cache.so*       mod_reqtimeout.so*     mod_version.so*
+			mod_authn_alias.so*    mod_authz_host.so*       mod_dbd.so*         mod_headers.so*     mod_mime_magic.so*      mod_rewrite.so*        mod_vhost_alias.so*
+			mod_authn_anon.so*     mod_authz_owner.so*      mod_deflate.so*     mod_ident.so*       mod_mime.so*            mod_setenvif.so*
+			mod_authn_dbd.so*      mod_authz_user.so*       mod_dir.so*         mod_imagemap.so*    mod_negotiation.so*     mod_speling.so*
+			mod_authn_dbm.so*      mod_autoindex.so*        mod_disk_cache.so*  mod_include.so*     mod_proxy_ajp.so*       mod_status.so*
+			mod_authn_default.so*  mod_cache.so*            mod_dumpio.so*      mod_info.so*        mod_proxy_balancer.so*  mod_substitute.so*
+
+			除上面的以外：
+			[root@web01 /]# find / -name mod_*
+			/zdc/home/neu.liupengfei/temp/20121025/mod_fcgid-2.3.7.tar
+			/var/cache/mod_proxy
+
+	2. 没有FastCGI。开通的端口为：199，22，8080。应该是通过8080对外提供地图服务
+
+192.168.1.12
+	部署的是T平台的Tomcat服务器，没有安装Apache
+
+192.168.1.14
+192.168.1.16
+192.168.1.18
+	部署的都是Apache的FastCGI，module/下都有httpd.exp  mod_fastcgi.so*  mod_fcgid.so*。
+	开通的端口都是199，22，8080
+
+	192.168.1.14的fcgi-bin/下都是fastcgi程序（Apache默认没有fcgi-bin/文件夹）
+	[root@cmdn01 fcgi-bin]# ls
+	00000000.m        fshmdump00.dat        Getmap_test.fcgi*        map.txt*                SrchCrossway.fcgi.bak*  SrchPoi.fcgi*        SrchRoute_RoadName.fcgi*
+	CheckKey.fcgi*    GetDTIInfo.fcgi*      GetTrafficMap.fcgi*      map.txt.bak*            SrchExpressWay.fcgi*    SrchPoi.fcgi.bak*    trafficMap.txt*
+	DTIServer.tar.gz  GetDTIInfo.fcgi.bak*  GetTrafficMapInfo.fcgi*  SrchAddress.fcgi*       SrchLocation.fcgi*      SrchRegion.fcgi*     UpdateKey.fcgi*
+	EMG_bak.ini*      Getmap_2byte.fcgi*    GetVersionNum.fcgi*      SrchAddressGrade.fcgi*  SrchPoiAddress.fcgi*    SrchRoadName.fcgi*
+	EMG.ini*          Getmap.fcgi*          InsertKey.fcgi*          SrchCrossway_1.fcgi*    SrchPoiCategory.fcgi*   SrchRoute.fcgi*
+	EMG_testmap.ini*  GetMapInfo.fcgi*      Log/                     SrchCrossway.fcgi*      SrchPoiDetail.fcgi*     SrchRoute.fcgi.bak*
+	
+	192.168.1.16的fcgi-bin/下
+	[root@cgi01 fcgi-bin]# ls
+	CheckKey.fcgi*      GetMapInfo.fcgi*     Log/                    SrchCrossway.fcgi*      SrchPoiAddress123.fcgi*  SrchPoi.fcgi*       SrchRoute_RoadName.fcgi*
+	EMG.ini*            Getmap_test.fcgi*    map.txt*                SrchCrossway.fcgi.bak*  SrchPoiAddress.fcgi*     SrchPoi.fcgi.bak*   UpdateKey.fcgi*
+	GetDTIInfo.fcgi*    GetTrafficMap.fcgi*  SrchAddress.fcgi*       SrchExpressWay.fcgi*    SrchPoiCategory.fcgi*    SrchRegion.fcgi*    WacthResult.txt*
+	Getmap_2byte.fcgi*  GetVersionNum.fcgi*  SrchAddressGrade.fcgi*  SrchLocation.fcgi*      SrchPoiDetail123.fcgi*   SrchRoadName.fcgi*
+	Getmap.fcgi*        InsertKey.fcgi*      SrchCrossway_1.fcgi*    SrchPoi123.fcgi*        SrchPoiDetail.fcgi*      SrchRoute.fcgi*
+
+	192.168.1.18的fcgi-bin/下
+	[root@route01 fcgi-bin]# ls
+	CheckKey.fcgi*    fastcgi.fcgi*       GetMapInfo.fcgi*     SrchAddressGrade.fcgi*  SrchPoiAddress.fcgi*   SrchRoadName.fcgi*        UnifiedURL.fcgi*
+	EMG.ini*          GetDTIInfo_1.fcgi*  GetVersionNum.fcgi*  SrchCrossway_1.fcgi*    SrchPoiCategory.fcgi*  SrchRoute.fcgi*           UpdateKey.fcgi*
+	EMG_testmap.ini*  GetDTIInfo.fcgi*    InsertKey.fcgi*      SrchCrossway.fcgi*      SrchPoiDetail.fcgi*    SrchRoute.fcgi.bak*
+	EMG_URL_1.ini*    Getmap_2byte.fcgi*  map.txt*             SrchExpressWay.fcgi*    SrchPoi.fcgi*          SrchRoute_RoadName.fcgi*
+	EMG_URL.ini*      Getmap.fcgi*        SrchAddress.fcgi*    SrchLocation.fcgi*      SrchRegion.fcgi*       UnifiedURL_1.fcgi*
+	
+
+
+192.168.1.20 部署的是map地图，需要打开postgresql数据库。本机上也部署了Apache，但没有启动
+	[root@db01 ~]# netstat -ntpl
+	Active Internet connections (only servers)
+	Proto Recv-Q Send-Q Local Address               Foreign Address             State       PID/Program name   
+	tcp        0      0 127.0.0.1:199               0.0.0.0:*                   LISTEN      1749/snmpd          
+	tcp        0      0 0.0.0.0:9898                0.0.0.0:*                   LISTEN      13818/pgpool: wait  
+	tcp        0      0 0.0.0.0:9999                0.0.0.0:*                   LISTEN      13818/pgpool: wait  
+	tcp        0      0 0.0.0.0:22                  0.0.0.0:*                   LISTEN      3203/sshd           
+	tcp        0      0 0.0.0.0:5432                0.0.0.0:*                   LISTEN      22495/postgres
+
+
+192.168.1.22 部署的是auth，但好像并没有使用，端口号只打开了199，22
+
+192.168.1.24 部署的是mybox，
+
+192.168.1.26 部署的是OpenVPN,打开的端口为：
+	[root@openvpn01 ~]# netstat -ntpl
+	Active Internet connections (only servers)
+	Proto Recv-Q Send-Q Local Address               Foreign Address             State       PID/Program name   
+	tcp        0      0 127.0.0.1:199               0.0.0.0:*                   LISTEN      1636/snmpd          
+	tcp        0      0 127.0.0.1:7505              0.0.0.0:*                   LISTEN      1610/openvpn        
+	tcp        0      0 0.0.0.0:22                  0.0.0.0:*                   LISTEN      2887/sshd 
+
+192.168.1.28上部署的是hobbit，端口为：
+	[root@hobbit01 ~]# netstat -ntpl
+	Active Internet connections (only servers)
+	Proto Recv-Q Send-Q Local Address               Foreign Address             State       PID/Program name   
+	tcp        0      0 0.0.0.0:111                 0.0.0.0:*                   LISTEN      1131/rpcbind        
+	tcp        0      0 0.0.0.0:22                  0.0.0.0:*                   LISTEN      1335/sshd           
+	tcp        0      0 127.0.0.1:631               0.0.0.0:*                   LISTEN      1222/cupsd          
+	tcp        0      0 127.0.0.1:25                0.0.0.0:*                   LISTEN      1427/master         
+	tcp        0      0 0.0.0.0:1984                0.0.0.0:*                   LISTEN      5338/hobbitd        
+	tcp        0      0 0.0.0.0:5672                0.0.0.0:*                   LISTEN      1470/qpidd          
+	tcp        0      0 0.0.0.0:49672               0.0.0.0:*                   LISTEN      1149/rpc.statd      
+	tcp        0      0 :::111                      :::*                        LISTEN      1131/rpcbind        
+	tcp        0      0 :::22                       :::*                        LISTEN      1335/sshd           
+	tcp        0      0 ::1:631                     :::*                        LISTEN      1222/cupsd          
+	tcp        0      0 ::1:25                      :::*                        LISTEN      1427/master         
+	tcp        0      0 :::44153                    :::*                        LISTEN      1149/rpc.statd 
+
+	而且还部署了Apache。module/下有：
+	httpd.exp       mod_auth_anon.so    mod_cern_meta.so  mod_env.so         mod_include.so       mod_mime.so         mod_status.so     mod_vhost_alias.so
+	mod_access.so   mod_auth_dbm.so     mod_cgi.so        mod_expires.so     mod_info.so          mod_negotiation.so  mod_unique_id.so
+	mod_actions.so  mod_auth_digest.so  mod_dav_fs.so     mod_ext_filter.so  mod_log_config.so    mod_rewrite.so      mod_userdir.so
+	mod_alias.so    mod_auth.so         mod_dav.so        mod_headers.so     mod_log_forensic.so  mod_setenvif.so     mod_usertrack.so
+	mod_asis.so     mod_autoindex.so    mod_dir.so        mod_imap.so        mod_mime_magic.so    mod_speling.so      mod_version.so
+	
