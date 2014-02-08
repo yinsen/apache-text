@@ -1,0 +1,78 @@
+#  1.开放模式负责设置过滤哪些文件和文件夹
+#  2.保守模式负责设置哪些文件不被过滤，也就是哪些文件要被跟踪，如：!/plutommi/mmi
+#  3.采用共享模式与保守模式结合配置的办法。eg：一个文件夹下有很多文件夹和文件，而我只想跟踪其中的一个文件，这样设置就可以满足这种情况：
+#先用共享模式把整个目录 都设置为不跟踪，然后再用保守模式把这个文件夹中想要跟踪的文件设置为被跟踪，配置很简单，就可以跟踪想要跟踪的文件。
+#  4. platform/*/         这句的意思是，跟踪“platfrom”目录下的所有文件，但是忽略所有文件夹，因为有个“/”在最后面
+#  5. gitignore文件可以位于任何目录中，其作用范围是所在目录及其子目录。因此把示例中的.gitingore文件移动到上一层目录也依然有效。
+#  6. 忽略只对未跟踪的文件有效，对于已经加入版本库的文件无效
+
+#general ignore
+*~
+
+#apache options
+*.o
+*.lo
+*.la
+*.slo
+*.mk
+*.deps
+.libs/
+docs/
+build/
+
+#generated files
+bin/
+gen/
+build/classes/
+
+
+#java options
+*.class
+*.jar
+*.war
+*.ear
+
+
+#Tomcat options
+!tomcat7.0.29/bin/
+!.backup/apache-tomcat-7.0.29-src/bin/
+tomcat7.0.29/modules/jdbc-pool/output/
+tomcat7.0.29/.settings/
+tomcat7.0.29/output/classes/
+tomcat7.0.29/output/embed/
+tomcat7.0.29/output/embed-src-jars/
+tomcat7.0.29/output/extras/
+tomcat7.0.29/output/extras-src-jars/
+tomcat7.0.29/output/manifests/
+tomcat7.0.29/output/build/work/
+tomcat7.0.29/output/build/bin/
+tomcat7.0.29/output/build/logs/
+tomcat7.0.29/output/build/temp/
+tomcat7.0.29/output/build/webapps/docs/
+tomcat7.0.29/output/build/webapps/examples/
+tomcat7.0.29/output/build/webapps/host-manager/
+tomcat7.0.29/output/build/webapps/manager/
+tomcat7.0.29/output/build/webapps/ROOT/
+!sample.war
+!jstl.jar
+!standard.jar
+!resources.jar
+!resources2.jar
+
+
+#struts
+struts-2.2.3.1/
+
+#spring
+spring-framework-3.1.0.RC2/
+
+# Android options
+*.apk
+*.ap_
+*.dex
+
+
+sourceInsight/
+# Local configuration file (sdk path, etc)
+local.properties
+
