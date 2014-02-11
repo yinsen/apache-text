@@ -9,6 +9,11 @@
 "--enable-cgi" \
 "--enable-rewrite" \
 "--enable-deflate" \
+"--enable-proxy" \
 "--with-apr=/usr/local/apr" \
 "--with-apr-util=/usr/local/apr-util" \
+"--enable-cache" \
+"--enable-disk-cache" \
+"--enable-mem-cache" \
+"--enable-file-cache" \
 "$@"

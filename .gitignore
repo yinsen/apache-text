@@ -16,9 +16,12 @@
 *.slo
 *.mk
 *.deps
+.cproject
+.project
 .libs/
 docs/
 build/
+SourceInsight/
 
 #generated files
 bin/
