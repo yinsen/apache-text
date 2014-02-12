@@ -40,6 +40,15 @@
 #include <netinet/in.h>
 #endif
 
+/* ============================== Sen ====================================
+	Function list
+	create_authz_host_dir_config ------ Used to init the authz_host_dir_conf.
+	order ------ Used to read the order from httpd.conf's <Directory> to authz_host_dir_conf.
+	allow_cmd ------ Used to read the allow/deny from httpd.conf's <Directory> to authz_host_dir_conf.
+
+	check_dir_access ------ used to check the access of each req, according to the authz_host_dir_conf.
+
+   ============================== Sen ====================================*/
 enum allowdeny_type {
     T_ENV,
     T_NENV,
@@ -74,6 +83,8 @@ module AP_MODULE_DECLARE_DATA authz_host_module;
 static void *create_authz_host_dir_config(apr_pool_t *p, char *dummy)
 {
     int i;
+//How to save this conf to req? Sen
+//????conf?req?dir???? Sen
     authz_host_dir_conf *conf =
         (authz_host_dir_conf *)apr_pcalloc(p, sizeof(authz_host_dir_conf));
 

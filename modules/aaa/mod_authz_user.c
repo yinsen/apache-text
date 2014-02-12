@@ -69,6 +69,7 @@ static int check_user_access(request_rec *r)
     }
     reqs = (require_line *)reqs_arr->elts;
 
+	//each loop handle a require directive --- Sen
     for (x = 0; x < reqs_arr->nelts; x++) {
 
         if (!(reqs[x].method_mask & (AP_METHOD_BIT << m))) {

@@ -89,6 +89,12 @@ AP_IMPLEMENT_HOOK_RUN_ALL(int, get_mgmt_items,
  * This file could almost be mod_core.c, except for the stuff which affects
  * the http_conf_globals.
  */
+ 
+/*
+Core模块提供了server的最基本操作的支持，包括一些其它模块的操作选项和命令。可以作为官方mod
+Core模块也提供handlers。当然只支持document服务。
+除了影响http_conf_globals的部分内容，本文件相当于mod_core.c。
+*/
 
 /* Handles for core filters */
 AP_DECLARE_DATA ap_filter_rec_t *ap_subreq_core_filter_handle;
