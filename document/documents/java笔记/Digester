@@ -1,0 +1,79 @@
+
+在一个比较完整的应用系统里，经常需要有一些配置文件。简单的属性使用.properties文件即可，但要配置一些复杂对象，则应该考虑使用xml文件。一般用来读取xml文件的工具包有DOM、SAX和JDOM等，但用过的人都知道，它们属于比较底层的API，写起来代码量很大，而且如果修改了xml文件的格式，代码也要做大幅度的改动。Jakarta Commons项目里的Digester包，可以轻松实现xml文件到Java对象的转换，看下面这个例子。
+
+在一个项目里，需要提供一些统计图，但图的内容暂时未能确定。所以我决定让图可以配置，所有定义保存在一个名为charts.xml（或国际化后的文件名如charts_zh_CN.xml，这里只考虑缺省语言）的文件内，下面是该文件的部分内容：
+
+<?xml version="1.0" encoding="UTF-8" ?>
+<charts>
+    <chart id="BarChart1" >
+        <title>统计图一</title>
+        <legendVisible>false</legendVisible>
+        <toolTipsVisible>true</toolTipsVisible>
+        <type>Bar</type>
+        <labelx>时间</labelx>
+        <labely>数据</labely>
+        <width>500</width>
+        <height>360</height>
+        <hql>select count(c),c.department.name from edu.pku.pub.aims.model.business.Client c group by c.department</hql>
+        <description></description>
+    </chart>
+</charts>
+
+可以看出，我为每个图定义了id、title、legendVisible等等属性，这些属性的意义都很明显，它们将影响统计图的数据和在页面中的表现。在程序里，我需要把这个文件里的定义读到一个注册表类ChartRegistry里，该注册表维护一个java.util.List类型的 registry变量，其中每个元素是一个ChartConfig类。现在Digester该显示它的价值了。
+
+为了方便使用Digester，我们让ChartConfig也具有统计图的每个属性（id、title、legendVisible等等），名称与charts.xml里的元素的属性（子元素）一一对应，并且都具有getter和setter方法，也就是说，ChartConfig是一个bean类。在 ChartConfig类里定义一个deregister()方法，它的作用是用Digester读入并解析指定的xml文件，代码如下；还有一个 register()方法用来把ChartConfig对象加到registry里。
+
+
+import org.apache.commons.digester.Digester;
+import org.xml.sax.SAXException; 
+
+public void deregister(URL url) throws IOException,SAXException{
+    Digester digester = new Digester();
+    digester.push(this);
+    digester.setValidating(false);
+    digester.addObjectCreate("charts/chart", ChartConfig.class); --------- 也有一点IOC的味道
+    digester.addSetProperties("charts/chart");
+    digester.addBeanPropertySetter("charts/chart/legendVisible");
+    digester.addBeanPropertySetter("charts/chart/toolTipsVisible");
+    digester.addBeanPropertySetter("charts/chart/title");
+    digester.addBeanPropertySetter("charts/chart/type");
+    digester.addBeanPropertySetter("charts/chart/labelx");
+    digester.addBeanPropertySetter("charts/chart/labely");
+    digester.addBeanPropertySetter("charts/chart/width");
+    digester.addBeanPropertySetter("charts/chart/height");
+    digester.addBeanPropertySetter("charts/chart/hql");
+    digester.addBeanPropertySetter("charts/chart/description");
+    digester.addSetNext("charts/chart","register");
+
+    InputStream is = new FileInputStream(url.getFile());
+    digester.parse(is);
+    Collections.sort(registry);
+}
+
+基本上来说，Digester和SAX解析xml的过程很像，它的原理就是制定一些规则（如上先配置一个digester对象），在遍历每个节点时检查是否有匹配的规则，如果有就执行对应的操作。
+
+例如，上面的代码中，“digester.addObjectCreate("charts/chart", ChartConfig.class);”这一句的作用是告诉Digester：如果遇到匹配“charts/chart”形式的节点，就执行一个“对象创建”操作，创建什么对象呢，应该创建Class为“ChartConfig.class”的对象；
+
+类似的，addSetProperties()是告诉 Digester将指定节点的属性全部映射到对象的属性，在这个例子里指的就是id属性；
+addBeanPropertySetter()是将子节点转换为对象的属性，这个方法还可以有第二个参数，当对象的属性名和子节点的名字不一样时用来指定对象的属性名；
+addSetNext()是说在遇到匹配节点后，对当前对象的父对象执行一个方法，参数是当前参数，对这个例子来说就是执行ChartRegistry.register(ChartConfig)方法。因此这样构造得到的Digester会把charts.xml里的每个元素转换为一个ChartConfig对象，并register到ChartRegistry里。
+
+顺利得到了ChartRegister对象，我就可以在程序里根据它的内容构造统计图了（统计图一般使用jfreechart来生成，这里就不赘述了）。与Digester具有类似功能的工具包其实还有不少，例如Caster、Jato等等，我没有实际使用过它们，但因为我对用过的Jakarta其他项目都很满意（例如BeanUtils、HttpClient，品牌效应？），所以一开始就选择了Digester：简单方便。
+
+
+
+又向楼主多学了一招，顺便帮楼主把代码帖全。注意用Digester时还要一起下载commons的BeanUtil和sax的实现包（我用xerces)，否则会出错 
+
+
+
+
+
+
+
+
+
+
+
+
+
+

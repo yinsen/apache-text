@@ -1,0 +1,172 @@
+
+软件开发总体组成：
+一、
+第一层级分类：三层：app + OS + driver
+
+
+二、app之间
+第二层级分类：进程间通信（包括网络通信），线程间通信；
+
+三、app之中：
+第三次分类：	
+		1）静态横向分块：JDK中的一些常用模块，常用工具等，比如说java.util、log工具、loader工具、session管理工具等
+		** 一个app如何在启动时将需要的那些横向分块 按照app配置 一个个启动起来，这就需要一个配置文件，而配置文件一般是xml，所以Digester很重要。 ** 
+		
+		2）静/动态纵向分层：表示层（android界面与JSP等）、MVC（android adapter和Structs等）、逻辑层（android Activity等与Spring）、数据存储层（android provider和Hiebrate）、数据库层（SQLite与Mysql等）
+
+			Android				J2ee
+
+
+			各种view <---------------------> JSP  (另外其它android的各种不需要adapter的控件实际上只是一种紧耦合的mvc，数据只是在控件里面而已)
+
+			adapter	<---------------------> Structs
+			其它的逻辑 <--------------------> Spring
+			Provider <--------------------> Hiebrate
+
+			SQLite	<---------------------> MySQL,Oracle...
+		3）运行时状态，即指整个进程空间里的布局，包括代码空间，数据空间，堆和栈，对象在内存中的状态等；还包括每个线程的执行路线，调用堆栈；还包括对象间通信，如observe、composite、chain of responsibility等模式设计的松耦合的对象间关系。也包括将上面静态的所有模块按照一定的规则load起来，挂载在整个运行系统之中（如Tomcat）。
+			a）启动：
+			b）运行：
+			c）停止：
+		
+
+
+		
+
+四、
+从整个设备角度，或整个系统角度，或者整个app角度，都可以分为两个面：服务面和设置管理面；比如基站设备，比如Java里的Java.lang.System，比如Tomcat的server&service模块,catalina的start和stop
+这两个面也分别对应着两份数据：服务数据和配置数据。比如在android中服务数据方sqlite，配置数据放在userpreference；它们可以由provider统一访问。
+
+
+五、数据理解：
+一个对象 = 数据库表中的一个元组 = 一个消息体 = 一个hashmap。因为它们都是由一组kvp组成。
+** 实际上所有的数据都是有kvp的形式，只不过我们一般会忽视k，而把所有的v放在一起称之为数据。
+
+
+
+
+三种父子关系：三种是完全相互独立的
+1.类层次上的父子关系：是可以反应在内存的存储结构上的；
+2.对象的包含关系的父子关系：父对象有一个指针指向子对象（当然子对象也可以有一个指针指向父对象）
+3.界面显示的父子关系：完全只是看layout布局，它可以是第2点的关系（composit，PLView），也可以不是；
+  后两种父子关系中的对象在内存中看起来是平等的关系
+
+
+
+
+
+
+
+
+第一章 adapter
+		++++++++++  adapter就相当于将数据与视图（MV）连接起来的中间者  	++++++++
+		++++++++++  Struts就相当于将请求与数据、数据与视图两个方面的连接（MVC）	+++++++++++
+	一、adapter有两种：
+
+		1.SimpleAdapter：以List<Map<String,?>>形式封装数据
+		2.SimpleCursorAdapter：以Cursor对象封装数据，Cursor中需要有“_id”一列
+
+	二、ListView的getItemAtPosition(int)方法可以获取封装数据的容器
+
+	     1.如果传入的是SimpleAdapter，获取到的就是一个Map<String,?>
+	     2.如果传入的是SimpleCursorAdapter，获得到的就是一个Cursor，并且Cursor以指向选中的一条记录
+
+
+
+
+
+ 
+第二章：LinearLayout和RelativeLayout 属性对比
+
+共有属性：java代码中通过btn1关联次控件
+android:id=”@+id/btn1″
+
+
+控件宽度
+android:layout_width=”80px” //”80dip”或”80dp” 
+android:layout_width =“wrap_content”
+android:layout_width =“match_parent” 
+
+控件高度
+android:layout_height=”80px” //”80dip”或”80dp”
+android:layout_height =“wrap_content”
+android:layout_height =“match_parent”
+
+控件排布
+android:orientation=”horizontal”
+android:orientation=”vertical“
+
+控件间距
+android:layout_marginLeft=”5dip” //距离左边 
+android:layout_marginRight=”5dip” //距离右边
+android:layout_marginTop=”5dip” //距离上面
+android:layout_marginRight=”5dip” //距离下面
+android:paddingLeft=”5dip” 控件显示位置
+android:gravity=”center” //left,right, top, bottom 
+android:gravity=”center_horizontal”
+android:layout_gravity是本元素对父元素的重力方向。
+android:layout_gravity属性则设置控件本身相对于父控件的显示位置
+android:gravity是本元素所有子元素的重力方向。
+android:layout_gravity=”center_vertical”
+android:layout_gravity=”left”
+android:layout_gravity=”left|bottom”
+
+
+TextView中文本字体
+android:text=”@String/text1″ //在string.xml中定义text1的值 
+android:textSize=”20sp” android:textColor=”#ff123456”
+android:textStyle=”bold” //普通（normal）， 斜体（italic），粗斜体（bold_italic）
+TextView中，控制其以…结束
+android:ellipsize=”end”
+
+只有一行
+android:singleLine=”true”
+
+定义控件是否可见
+android:visibility=”visible” //可见 
+android:visibility=”invisible”　　//不可见，但是在布局中占用的位置还在
+android:visibility=”gone”　　　//不可见，完全从布局中消失
+
+定义背景图片
+android:background=”@drawable/img_bg” //img_bg为drawable下的一张图片
+seekbar控件背景图片及最大值
+android:progressDrawable=”@drawable/seekbar_img” 
+android:thumb=”@drawable/thumb” 
+android:max = “60″
+android:layout_alignWithParentIfMissing=”true”
+
+
+仅在RelativeLayout中有效：
+在父亲布局的相对位置
+android:layout_alignParentLeft=”true” //在布局左边 
+android:layout_alignParentRight=”true” //在布局右边 
+android:layout_alignParentTop=”true” //在布局上面 
+android:layout_alignParentBottom=”true “ //在布局的下面
+
+
+在某个控件的相对位置
+android:layout_toRightOf=”@id/button1″ //在控件button1的右边，不仅仅是紧靠着 
+android:layout_toLeftOf=”@id/button1″ //在控件button2的左边，不仅仅是紧靠着 
+android:layout_below=”@id/button1“ //在控件button1下面，不仅仅是正下方 
+android:layout_above=“@id/button1” //在控件button1下面,不仅仅是正下方
+
+
+定义和某控件对奇
+android:layout_alignTop=”@id/button1” //和控件button1上对齐 
+android:layout_alignBottom=”@id/button1” //和控件button1下对齐 
+android:layout_alignLeft=”@id/button1” //和控件button1左对齐 
+android:layout_alignRight=”@id/button1” //和控件button2右对齐
+android:layout_centerHorizontal=”true” //水平居中 
+android:layout_centerVertical=”true”
+android:layout_centerInParent=”true” 
+
+
+仅在LinearLayout中有效
+设置控件在一排或一列中所占比例值
+android:layout_weight=”1″
+（一） android:layout_height = "fill_parent"
+（二） android:layout_height = "wrap_content"
+在（一）、（二）2种情况在相同的android:layout_weight属性下呈现出正好相反的情况。
+
+
+

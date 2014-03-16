@@ -1,0 +1,2835 @@
+Tomcat就是将所有服务处理中流程相关的、协议相关的等各种公共事情统一地规范化的处理了，只剩下具体业务相关的处理留给server程序员。
+协议也是如此，规定公有的，剩下私有的；linux OS也是如此，确定能确定的东西
+
+四大块： connector 处理socket accept()
+	   processor 处理单个的socket连接中所有的请求应答，解析request line & headers 并创建request&response对象
+		container：load servlet并调用其service()
+		servlet： 继续解析request剩下部分，如body，query string，cookies等。完成最终任务。
+
+
+
+
+两条线索：
+	1.纵向线：Tomcat处理request过程，必须要使用的工具组件，组织成各个container的valve组件。如authenticate
+	2.横向线：Tomcat可选用的工具组件，即6,7,8,9章描述的内容。log，loader，session等，
+	*** 以上所有的组件都提供一个setContainer()&getContainer()接口以跟具体的context或wrapper联系起来 ***
+
+两大顺序：
+  1.配置面的启动顺序：start.sh脚本启动，启动server->启动service->启动connectors及catalina->启动catalina中的各个子容器和组件，并完成它们的初始化及配置
+	1)初始化过程：将横向线上的各个组件初始化，并挂载到各个container上
+	2)start()的顺序是loader.start()->[children.start()->]pipeline.start(); 反之为pipeline.stop()->[children.stop()->]loader.stop()
+	3)配置面在Tomcat启动后的工作，即管理工作，由Manager App来执行
+	4)host的start()过程包括了webapp的deploy(install)和start()；
+  2.服务面的请求处理顺序：
+	1)Http请求解析过程：第一步就是connector接受socket连接，再接受request，再生成request&response对象，再调用container的Invoke()	
+	2)invoke()的顺序是context.invoke()->pipeline.invoke()->basicvalve.invoke()->wrapper.invoke()->pipeline.invoke()->basicvalve.invoke()->servlet.service()
+		
+
+
+一个webapp对应一个connector，一个connector ----> 多个连接； 每个连接-------> 一个接收线程，多个请求； 每个请求  <--------> 一个处理线程； webapp中的每个servlet都可以对应多个连接 
+一个context对应一个session manager
+一个context对应一个线程集，它就相当于有一个全局的概念
+
+两种request&response接口：一种是Catalina中的，org.apache.catalina.Request(为了能被containor.invoke()调用)；
+						一种是javax.servlet.http.HttpServletRequest(为了能被servlet.Service()调用)
+
+
+					
+tomcat目录结构
+　　/bin：存放windows或Linux平台上启动和关闭Tomcat的脚本文件
+　　/conf：存放Tomcat服务器的各种全局配置文件，其中最重要的是server.xml和web.xml
+　　/doc：存放Tomcat文档
+　　/server：包含三个子目录：classes、lib和webapps
+　　/server/lib：存放Tomcat服务器所需的各种JAR文件
+　　/server/webapps：存放Tomcat自带的两个WEB应用admin应用和 manager应用
+　　/common/lib：存放Tomcat服务器以及所有web应用都可以访问的jar文件
+　　/shared/lib：存放所有web应用都可以访问的jar文件（但是不能被Tomcat服务器访问）
+　　/logs：存放Tomcat执行时的日志文件
+　　/src：存放Tomcat的源代码
+　　/webapps：Tomcat的主要Web发布目录，默认情况下把Web应用文件放于此目录
+　　/work：存放JSP编译后产生的class文件
+
+
+
+
+预备知识：
+一、Http协议：
+1.消息结构
+	请求与响应消息都分三个部分：
+	1）起始行；（一行）
+	2）消息头；（每个头一行，如果一个头有多行，那第一行之后的每行都要以lws或sp开始） 以 “常用头，请求/响应头，实体头”的顺序最好
+	  （一个空行）
+	3）消息体；（有没有消息体取决于 消息头域中是否存在内容长度（Content-Length）或传输译码）
+
+	其中消息头是由很多的kvp（k:(sp)v）字符串组成。每一个kvp都代表一个协议参数。如果v有多个值，则每个值之间以  ';'+空格  来分隔。
+			(即v前面有个空格)
+
+2.重要的协议参数有：
+	日期时间；
+	字符集；
+	媒体类型；Content-Type
+	内容编码；Content-Encoding 
+	传输编码；Transfer-Encoding（可以进行块编码，然后再加一个tailer域以指示最后一块数据）
+	消息长度；指消息经过编码后的“消息体”的长度：“块”传输编码定义——》Content-Length
+
+3.post与put：post是不等幂的，post里的实体是请求URI的从属物；put是等幂的，put的实体是URI的修改版。
+	POST方法和PUT方法请求最根本的区别是请求URI（Request-URI）的含义不同。POST请求里的URI指示一个能处理请求实体的资 源（译注：此资源可能是一段程序，如servlet） 。
+	post可以担负起上传文件的功能。此时参照RFC1867，与Http协议的不同主要有：
+		1）实体头content-type要这样写：
+			content-type: multipart/form-data;+空格+boundary=---------------------------7d52b133509e2
+			因为在post时，上传实体内容与上传实体文件都是放在消息体中，所以需要用boundary来分隔消息体中的每一个实体
+		2）在消息体中，每一个实体还有一个实体头部分。实体既可以是表单数据，也可以是文件：
+			a）表单数据实体头部分：
+				Content-disposition: form-data; name="user" 
+				Content-type: text/plain                                 //实体内容类型
+				Content-Transfer-Encoding: 8bit			//编码方式
+				(\r\n)
+				(真正的文本内容)...
+			b）表单文件实体头部分：
+				Content-disposition: attachment; filename="myphoto.gif" //attachment 图片名字
+				Content-type: image/gif                                 //图片描述
+				Content-Transfer-Encoding: binary			//编码方式
+				(\r\n)
+				(真正的图片数据.gif)...
+			c）实体中还可以嵌套一组子实体，也在外面实体的实体头中指明：
+				Content-disposition: form-data; name="myfile"               //form 表单变量名
+				Content-type: multipart/mixed, boundary=BbC04y           //新的描述和新的描述和boundary
+				(\r\n)
+					
+					然后子实体的格式大致如下：
+					Content-disposition: attachment; filename="file1.txt"
+					Content-type: text/plain
+					...
+					
+					
+
+4.client和server都可以提前中断它们之间的连接，在明确中断之前，它们之间的连接默认是一直连着的
+
+
+前言
+
+
+一、本书的方式就是build一张大的tomcat的组件结构示意图。并提供一个简化版本的tomcat以便于理解，为以下工作提供帮助：
+	1.做servlet/jsp开发
+	2.想了解像tomcat这样的大型应用是如何设计和开发的
+	3.想配置和定制tomcat
+
+二、servlet容器（即Catalina）的基本工作：
+	1. servlet容器为servlet请求提供三种基本服务
+		1）创建一个request object并做初步填充。这个request是javax.servlet.ServletRequest接口对象或javax.servlet.http.ServletRequest
+接口对象。
+		2）创建一个response object。这个response是javax.servlet.ServletResponse接口对象或javax.servlet.http.ServletResponse接口对象。
+		3）调用servlet的service()函数
+
+三、Catalina结构：
+	1.Catalina主要由两大模块组成：connector和container.它们的关系是多（connector）对一（container）           
+		1)connector主要功能就是接收来自client的http请求，并构造request	object和response object。
+		2）container的主要功能就是将request	object和response object传递给servlet的service（）。在此之前，有多个模块来处理多项工作，如：
+			a）load servlet。
+			b）用户认证
+			c）更新用户会话
+                    
+	2.以下各章就是分别详细讲述connector和container的功能和实现
+
+
+第一章 一个最简单的http server
+	一、java socket编程
+		1. new Socket ("yahoo.com", 80);
+		2. 发送流和文本发送：
+			boolean autoflush = true;
+			OutputStream os = socket.getOutputStream();
+			PrintWriter out = new PrintWriter(os, autoflush);
+
+		3.接受流和文本接收：
+			InputStream is = socket.getInputstream()；
+			BufferedReader in = new BufferedReader( new InputStreamReader(is) );
+
+		4.new ServerSocket(int port, int backLog, InetAddress bindingAddress);
+		  new ServerSocket(8080, 1, InetAddress.getByName("127.0.0.1"));
+
+	二、http server例子：
+		1.Request用于获得inputstream，然后从中得到uri。
+		2.Response用上面的uri取出对应的资源，构造response，发送给client。
+
+
+
+第二章 一个最简单的servlet container
+	一、实现一个servlet。
+		1.servlet编程主要依靠两个包：javax.servlet和javax.servlet.http
+		2.javax.servlet.Servlet接口是最重要的，因为每一个servlet都必须实现这个接口
+		3.servlet主要有5个接口：
+			1）public void init(ServletConfig config) throws ServletException   ----------------  servlet实例化时container自动调用，可用于完成诸如load数据库driver，初始化等工作
+			2）public void service(ServletRequest request, ServletResponse response)
+									throws ServletException, java.io.IOException
+			3）public void destroy()     ----------------------------------------------   需要在里面回收所有资源，包括内存，文件句柄，线程等。
+			4）public ServletConfig getServletConfig()
+			5）public java.lang.String getServletInfo()
+
+
+			javax类层次结构：（带Http的为http包中的类）
+			Servlet																							
+			GenericServlet			ServletRequest					ServletResponse
+			HttpServlet				HttpServletRequest				HttpServletResponse				HttpSession		Cookie ------> 通常用的一层类对象
+									HttpServletRequestWrapper		HttpServletResponseWrapper
+
+			apache对应常用三个类：
+			Context、Request、Response
+
+	二、实现一个最简单servlet container
+		1.使用URLClassLoader将请求中的uri对应的servlet文件load到一个Class对象中。
+		** 在一个servlet container中，classloader寻找servlets的location叫做repository.**
+		2.将此Class对象强转成Servlet对象.（servlet = (Servlet) myClass.newInstance();）    --------------------   此时调用init()
+		3.再调用此servlet的service().(servlet.service((ServletRequest) request, (ServletResponse) response);)
+		4.servlet对象shutdown时，调用destroy()，并且unload servlet对象。
+
+
+	三、上面实现的改进
+		1.Request和Response是从ServletRequest和ServletResponse继承而来，所以会在它们的基础上添加一些接口，如parse()。但是这些接口是非servlet标准的接口，所以不应该能被servlet访问。
+		    Solusion（以Request为例，Response同）:使用proxy模式中的保护代理：
+			1）新建ServletRequest子类RequestFacade。
+			2）将ServletRequest作为RequestFacade的私有成员，然后将Request符合ServletRequest规范的接口都暴露，其它的都隐藏起来。
+		
+
+第三章 最简单的http server初步扩展成Connector（Tomcat4 Connector的简化版）
+	
+	一、概述
+		Connector的作用就是接收请求，并构造request和response。本章的Connector就是介绍能符合Servlet2.3&2.4规范的request&response
+		1.request必须是javax.servlet.http.HttpServletRequest的对象。response是javax.servlet.http.HttpServletResponse的对象
+		2.servlet有可能是实现javax.servlet.Servlet接口，有可能是继承javax.servlet.GenericServlet，也有可能继承javax.servlet.http.HttpServlet等。
+		**从本章开始例子都有一个bootstrap类作为程序入口。并且connector和container相互独立开。**
+
+	二、StringManager类（org.apache.catalina.util.StringManager）
+		1.StringManager类主要用于记录Tomcat中的error message。将它们写入到properties文件。因为Tomcat中有几百个类，所以为了区分它们的log，就为每一个包提供一个properties文件。
+			每个StringManager对象对应一个properties文件
+		2.每个properties文件对应有多个语言版本，如：LocalStrings.properties --------- 英文版
+											  LocalStrings_ja.properties ------ 日文版
+
+		3.为防止资源浪费，每个包内的StringManager都是一个singleton。每个object通过 static getManager(package_name)来获取本包的StringManager。
+		4.所有StringManager都被存在一个哈希表中，key就是package name
+。		5.public String getString(String key)用于获得error message
+
+	三、本Connector实例的模块划分
+		1.HttpConnector（用于接收客户请求） 
+		2.HttpProcessor（用于处理请求并构造request&response）
+		**（以上两个对应上一章的http server）**
+
+		3.HttpRequest及其HttpRequestFacade （实现javax.servlet.http.HttpServletRequest，以下同）
+		4.HttpResponse及其HttpResponseFacade
+
+	四、HttpConnector实现
+		就是建立一个ServerSocket，并accept()，将每一个连接的请求处理工作交给一个HttpProcessor。
+
+			
+
+	五、HttpProcessor实现（工作步骤）
+		/*******************************************************************************
+		connector在收到client的http请求后，需要解析请求内容，来构造HttpRequest对象。但是，解析的过程是很耗资源的，而有时servlet并不需要解析的内容，
+		所以可以将parse的操作延后到servlet真正需要请求参数的时候。
+											—————— 就是起始行和头域在HttpProcessor创建request和response时解析，query和body由servlet决定什么时候解析
+		********************************************************************************/
+		1。解析http请求的 起始行以及头域。（利用SocketInputStream）
+			1）用SocketInputStream接收http请求消息。
+			
+			2）SocketInputStream.readRequestLine()获得http请求的起始行（HttpRequestLine） ** 不包括query string
+			3）构造HttpRequest并用解析出来的 HttpRequestLine 信息进行填充。
+			
+			4）循环调用SocketInputStream.readHeader()每次获得头域中的一个kvp（HttpHeader）。**包括cookies或者jsessionid（jsessionid用于在浏览器禁止cookies时，临时标识自己，以进行session）
+			5）用解析出来的HttpHeader信息继续填充前面构造的HttpRequest
+
+		2。将构造好的HttpRequest以及HttpResponse交给ServletProcessor(相当于containor)。
+
+	六、HttpRequest实现
+		1。实现javax.servlet.http.HttpServletRequest中各个字段的set()&get()接口。主要包括以下一些字段：
+			1）protected HashMap headers = new HashMap();
+			2）protected HashMap attributes = new HashMap();
+			3）protected ArrayList cookies = new ArrayList();
+			4）protected ParameterMap parameters = null;
+				*****等等*******
+
+		2。自己实现对http请求消息中《parameters ———— 消息体 / query string中》的解析功能，当servlet的确需要解析获取request中的参数时再调用这些功能。
+			如以query string的解析为例：
+			1）在getParameterMap()、getParameterNames()等函数中，临时调用parseParameters()以解析query string来填充HttpRequest
+			2）因为parseParameters()只需要被调用一次，就做了所有parameters的填充，所以函数自己必须确保自己只能被调用一次。
+			3）如果是GET，则parameters只存在于query string中；而如果是POST，则parameters也可能在body中。
+			4）org.apache.catalina.util.ParameterMap被用于存储所有的参数hash对。它主要的特点就是提供一个lock来限制里面hash对的增删改操作，读是随时可以的。
+
+	七、HttpResponse实现
+		1.提供对http应答的head等参数的填充
+
+	八、Tomcat4 Default connector的改进方向：
+		1.对所有的request headers都做了解析，不管事实上需不需要，所以服务器速度会很慢。
+
+	
+第四章 Tomcat4 Default Connector（它包括了connector & processor的过程）
+	一、真实的connector的特点：
+		1.connector是一个独立于containor的模块，事实上是有很多种connector实现可以任意选用。
+		2.connector必须满足的基本需求：
+			1）必须实现org.apache.catalina.Connector接口
+			2）必须创建满足org.apache.catalina.Request接口的对象
+			3）必须创建满足org.apache.catalina.Response接口的对象
+			4）必须调用org.apache.catalina.Container的public void invoke(
+																		org.apache.catalina.Request request,
+																		org.apache.catalina.Response response);
+
+				函数来将request和response传递给containor -->（再由containor调用servlet.service()）
+		
+		3.相对于上一章中那个简单的connector，现在connector所做的改进：
+			1）预创建了很多个变量形成变量池，减少创建变量对象的时间
+			2）使用char arrays来代替String
+
+		4.它支持HTTP1.1的新的特性：
+			1）永久连接：
+				由于现在的网页都带了很多的resources，网页下载下来后还要继续下载那些resources，所以http1.1默认使用永久连接，即不会在一个请求后自动关闭。
+				也可以加上connection: keep-alive --------- 可不加
+
+			2）块编码（Chunked Encoding）：
+				a）因为是永久连接，请求/应答会一个接一个，所以必须加上content-length头，以让接收方知道头尾，知道如何解析http消息。
+				b）transfer-encoding头意味着，请求/响应会使用chunks。transfer-encoding就是给传输内容分块的意思：
+						
+						1D\r\n					--------------------- 第一块的长度
+						I'm as helpless as a kitten u	------------- 第一块的内容
+						9\r\n					--------------------- 第二块的长度
+						p a tree.				  ------------------- 第二块内容
+						0\r\n					--------------------- 整个transaction的结束标志
+
+			3）Expect: 100-continue
+				为了知道server愿不愿接收本地的请求（通常是内容很长的请求），先发送Expect: 100-continue头给服务器，如果同样收到此header的应答，表明可以继续发送请求
+
+
+	二、真实版HttpConnector实现org.apache.catalina.Connector接口
+		1。HttpConnector 一共实现了三个接口：
+			1）org.apache.catalina.Connector		----- 基本接口(最重要的几个函数:getContainer, setContainer, createRequest, createResponse)
+			2）java.lang.Runnable		--------- 多线程
+			3）org.apache.catalina.Lifecycle. ------ 需要调用一次initialize() & start()
+
+		2。HttpConnector 结构三要点：
+			1）创建一个Server Socket
+				不是直接用java.net.ServerSocket的构造函数生成socket，而是用DefaultServerSocketFactory来生成socket。
+
+			2）维护HttpProcessor线程池		--------  采用预分配的多线程并发socket模式
+				a）一个HttpConnector对应多个HttpProcessor（存储在一个 java.io.Stack ———— processors中，由minProcessors，maxProcessors两个变量决定个数范围），而每个HttpProcessor都有自己的线程。
+				b）先是预分配minProcessors多的HttpProcessor，实际运行中超过这个数时会再新增HttpProcessor，直到maxProcessors。如果有更多连接则全部丢弃（关闭新accept()的socket）。如果maxProcessors设为负数，则没有上限。curProcessors记录了当前实际的HttpProcessor个数。
+				c) 每个HttpProcessor都要创建一个request和一个response。所以也在HttpProcessor构造函数中预先创建。
+			
+			3）Serving HTTP Requests
+				即将每一个收到的请求交给一个HttpProcessor去做，然后不用等待HttpProcessor处理完成，直接返回等待下一个连接请求
+
+	三、HttpProcessor 的主要扩展：
+			1)两个函数，
+			await（）由HttpProcessor调用，等连接进来后处理请求；	---------- assign()由HttpConnector调用，等accept后取预分配的HttpProcessor的socket
+			HttpProcessor.await()							|			HttpProcessor.assign()
+															|
+			while (!available) { 							|			while (available) {
+			wait();											|				 wait();
+			} 												|			}
+			Socket socket = this.socket; 					|			this.socket = socket;
+			available = false; 								|			available = true;
+			notifyAll(); 									|			notifyAll();
+			return socket; // to the run ...				|
+															|
+		
+	四、Request对象 ———— HttpRequestImpl类对象
+		1.实现了两个接口：org.apache.catalina.Request(为了能被containor.invoke()调用)	&	javax.servlet.http.HttpServletRequest(为了能被servlet.Service()调用)
+
+		
+	五、Response对象 ———— HttpResponseImpl类对象
+		1.实现了两个接口：org.apache.catalina.Responses(为了能被containor.invoke()调用)	&	javax.servlet.http.HttpServletResponse(为了能被servlet.Service()调用)
+
+
+
+第五章、Containor （只需要了解其运行机制，书中的接口在新版tomcat的已经被调整）
+
+	一、概述
+		1.Containor分四种：Engine, Host, Context, and Wrapper
+		2.四种Container所对应的类是StandardEngine, StandardHost, StandardContext, and StandardWrapper
+			如StandardEngine是继承了ContainerBase和Engine接口，StandardHost继承了ContainerBase和Host接口等。
+		3.一个实际的Container不是一定要所有这四种，有可能只有Wrapper，有可能只有Wrapper和Context等
+
+		4.整个Container这四种层次采用Composite模式，有addChild(),removeChild(),findChild(),findChilden()等接口。
+
+		5.另外，Container也包含很多其它的子模块，如Loader,Logger, Manager, Realm, and Resources等等，提供set&get访问接口对。
+	二、org.apache.catalina.Container接口
+
+	三、Container里的pipelining机制
+		1.container's invoke()被调用的时候，开始调用pipelining的invoke，由pipelining所有valve处理过后再交给下一层Container的invoke()，最后交给servlet
+		  valve表示pipelining可以处理的任务，一个valve代表一个任务。而pipelining本身有个base valve，pipelining的valves数不包括这个base valve
+
+			1)  Container的invoke()函数：
+				public void invoke(Request request, Response response)throws IOException, ServletException{
+						pipeline.invoke(request, response);
+						}
+			2)  pipeline的invoke()函数伪代码：
+				void invoke(){
+					valve_first.invoke( ... );
+				
+					// then, invoke the basic valve
+					basicValve.invoke( ... );
+				}
+			3) valve_first.invoke()函数伪代码：
+				void invoke(){
+					...
+					
+					getNext().invoke(request, response);
+				}
+		
+		2. pipelining详解：
+			public interface Pipeline {
+				public Valve getBasic();
+				public void setBasic(Valve valve);
+				public void addValve(Valve valve);
+				public Valve[] getValves();
+				public void removeValve(Valve valve);
+				
+				public Valve getFirst();
+				public boolean isAsyncSupported();
+				public Container getContainer();
+				public void setContainer(Container container);
+			}
+
+		3. valve接口：
+
+	四、Wrapper接口以及实例
+		1.org.apache.catalina.Wrapper接口。一个Wrapper代表一个servlet，wrapper的主要职责就是管理servlet的生命周期。调用servlet的init, service, and destroy方法。
+		2.Wrapper主要的接口(按调用顺序)：
+			1）allocate()：用于分配并初始化一个servlet实例。
+			2）load()：用于将一个servlet的class load到分配的空间中。
+			3）init()
+			4）service()
+
+		3.Wrapper App处理流程：
+			1）pipelining的 invoke()处理 ------- 一些额外的事情处理
+			2) Basic valve的invoke() 处理。----- servlet相关的事情处理
+				a) allocate一个servlet对象，
+				b) 调用getClassLoader()获取loader
+				c) load一个servlet 的class到servlet对象; --> 使用wrapper自己的loader，如果没有，则使用父容器（如Context）的loader，如果都没有，就返回NULL。
+				d) 调用servlet.Service()；
+			** protected Container parent = null; --> 指向父容器的指针 **
+				
+		4。Bootstrap
+			需要将wrapper等容器的各个属性都预先设定好，如valve，loader，servlet等。
+	五、Context接口以及实例
+		1.一个Context表示一个webapp，通常包含一个或多个wrapper。重要的接口有：addWrapper, createWrapper等。
+			一个Context区分wrapper的方式就是通过URL等。
+		2.一个Context需要一种引导机制，来调用特定的wrapper。Tomcat4就是Mapper：
+			package org.apache.catalina;
+			
+			public interface Mapper {
+				public Container getContainer();	-----------------> 父container
+				public void setContainer(Container container);
+				public String getProtocol();
+				public void setProtocol(String protocol);
+				public Container map(Request request, boolean update); -------> 返回处理输入参数request的子container，比如用URL来区分选择需要的wrapper
+			}
+		
+		3. Context实例：
+			1）此Context有一个Mapper，一个basic valve，两个pipelining的valves。两个wrappers，不过这两wrappers只有basic valve。
+
+			2）调用机制：
+				Context先调用自己的pipelining，再调用basic valve的invoke，basic valve的invoke会依靠Mapper再调用wrapper的invoke
+
+				Wrapper wrapper = null;
+				try {
+				wrapper = (Wrapper) context.map(request, true);
+				}
+
+				wrapper.invoke(request, response); ---------- allocates a servlet and calls its service method
+
+		4。Bootstrap
+			需要将context等容器的各个属性都预先设定好，如valve，loader，servlet，还有Mapper等。
+
+
+
+第六章 Lifecycle 生命周期
+
+	一、概述：
+		1. Catalina拥有很多个组件（包括它里面的servlets和其它的组件），而且这些组件必须保持和catalina的一致性。比如说catalina启动了，那么所有的组件都必须也启动了；catalina stop了，那么所有的组件也要跟着被clean up。------> 就相当于增加了一个全局状态机，用于控制所有线程中的所有组件的相关行为
+
+		2.Catalina通过Lifecycle接口来统一管理所有的子组件的启动和关闭，所以bootstrap程序就能使用一句话来启动和关闭所有的子模块
+
+ *            start()
+ *  -----------------------------
+ *  |                           |
+ *  | init()                    |
+ * NEW ->-- INITIALIZING        |
+ * | |           |              |     ------------------<-----------------------
+ * | |           |auto          |     |                                        |
+ * | |          \|/    start() \|/   \|/     auto          auto         stop() |
+ * | |      INITIALIZED -->-- STARTING_PREP -->- STARTING -->- STARTED -->---  |
+ * | |         |                                                  |         |  |
+ * | |         |                                                  |         |  |			
+ * | |         |                                                  |         |  |
+ * | |destroy()|                                                  |         |  |
+ * | -->-----<--       auto                    auto               |         |  |
+ * |     |       ---------<----- MUST_STOP ---------------------<--         |  |
+ * |     |       |                                                          |  |
+ * |    \|/      ---------------------------<--------------------------------  ^
+ * |     |       |                                                             |
+ * |     |      \|/            auto                 auto              start()  |
+ * |     |  STOPPING_PREP ------>----- STOPPING ------>----- STOPPED ---->------
+ * |     |                                ^                  |  |  ^
+ * |     |               stop()           |                  |  |  |
+ * |     |       --------------------------                  |  |  |
+ * |     |       |                                  auto     |  |  |
+ * |     |       |                  MUST_DESTROY------<-------  |  |
+ * |     |       |                    |                         |  |
+ * |     |       |                    |auto                     |  |
+ * |     |       |    destroy()      \|/              destroy() |  |
+ * |     |    FAILED ---->------ DESTROYING ---<-----------------  |
+ * |     |                        ^     |                          |
+ * |     |     destroy()          |     |auto                      |
+ * |     -------->-----------------    \|/                         |
+ * |                                 DESTROYED                     |
+ * |                                                               |
+ * |                            stop()                             |
+ * --->------------------------------>------------------------------
+ *   
+ * Any state can transition to FAILED.
+
+（NEW,INIT,START,STOP,DESTROY五大状态，后面四种都有中间状态，START和STOP还有预中间状态）
+
+	二、跟Lifecycle相关的三个类：（observer模式）
+			Lifecycle,     LifecycleEvent, and LifecycleListener；再加一个LifecycleSupport ---- 此类主要用于执行发送lifecycle事件，并充当listener
+			(BroadCaster)   (Message)			(Listener)
+
+		1. Lifecycle接口：
+			此接口分为两部分，一部分就是控制子模块启动停止的start&stop（对外接口），一部分就是形成listen机制的各种listen接口（对内消息实现）。
+			public interface Lifecycle {
+				public static final String BEFORE_INIT_EVENT = "before_init";
+				public static final String AFTER_INIT_EVENT = "after_init";
+
+				public static final String START_EVENT = "start";
+				public static final String BEFORE_START_EVENT = "before_start";
+				public static final String AFTER_START_EVENT = "after_start";
+				public static final String STOP_EVENT = "stop";
+				public static final String BEFORE_STOP_EVENT = "before_stop";
+				public static final String AFTER_STOP_EVENT = "after_stop";
+
+				public static final String AFTER_DESTROY_EVENT = "after_destroy";
+				public static final String BEFORE_DESTROY_EVENT = "before_destroy";
+
+				public static final String PERIODIC_EVENT = "periodic";
+				public static final String CONFIGURE_START_EVENT = "configure_start";
+				public static final String CONFIGURE_STOP_EVENT = "configure_stop";
+		
+				//主要就是像增加子模块为它的Listener，这样当它的某个事件发生的时候，就可以通知子模块，让它们同步运行
+				public void addLifecycleListener(LifecycleListener listener);
+				public LifecycleListener[] findLifecycleListeners();
+				public void removeLifecycleListener(LifecycleListener listener);
+
+				public void init() throws LifecycleException;
+				public void start() throws LifecycleException;
+				public void stop() throws LifecycleException;
+				public void destroy() throws LifecycleException;
+
+				public LifecycleState getState();    
+				public String getStateName();
+			}
+
+		2. LifecycleSupport类：一个实现Lifecycle接口的类的例子，主要示范实现以下三个接口函数：
+				
+				public void addLifecycleListener(LifecycleListener listener);
+				public LifecycleListener[] findLifecycleListeners();
+				public void removeLifecycleListener(LifecycleListener listener);
+
+	三、Lifecycle实例：
+		1. context和wrapper都拥有一个LifecycleSupport类实例以代替自己实现Listen的功能。实现的那个SimpleContextLifecycleListener可以收到来自context和wrapper的START_EVENT 或 AFTER_START_EVENT等事件。
+		2. contexter的start流程：
+			1）context start的顺序是：loader-->child container-->pipelining。相当于是先调用children的start再启动自己的pipelining
+			2）先发送BEFORE_START_EVENT,load结束后再发送START_EVENT & AFTER_START_EVENT.
+			3) context stop的顺序是：pipelining-->child container-->loader，正好与start相反。
+		3. wrapper的start流程：
+			1）因为它没有child container，所以wrapper的start流程是loader-->pipelining。
+			2）先发送BEFORE_START_EVENT,load结束后再发送START_EVENT & AFTER_START_EVENT.
+			3) wrapper stop的顺序是：pipelining-->loader，也正好与start相反。
+				*** 在stop之前，wrapper会先将它的servlet 进行destroy()***
+
+	总结：主要就两块，一个就是控制整个容器内组件的start&stop，另外一个就是为组件间建立一个Listener机制（如上面的那个SimpleContextLifecycleListener就是listener组件的代表）。比如说一个context.start()，那么所有这个事件的listener组件都将开始工作；然后在context.start()中会调用所有的wrapper.start(),同样的wrapper.start()这个事件的所有listener组件都将开始工作。
+
+
+第七章：Logger 日志机制
+
+	一、概述
+		Logger都是伴随着一个Container的一个组件。它有多个logger类以对应多种log形式。
+
+
+	二、Logger接口：
+
+		public interface Logger {
+			public static final int FATAL = Integer.MIN_VALUE;
+			public static final int ERROR = 1;
+			public static final int WARNING = 2;
+			public static final int INFORMATION = 3;
+			public static final int DEBUG = 4;
+
+			public Container getContainer();      -----------------------  logger对应的那个container
+			public void setContainer(Container container);
+
+			public String getInfo();
+			public int getVerbosity();
+			public void setVerbosity(int verbosity);
+			
+			public void log(String message);
+			public void log(Exception exception, String msg);
+			public void log(String message, Throwable throwable);
+			public void log(String message, int verbosity);
+			public void log(String message, Throwable throwable, int verbosity); ------------五种打印接口，verbosity表严重程度
+
+			public void addPropertyChangeListener(PropertyChangeListener listener);
+			public void removePropertyChangeListener(PropertyChangeListener
+			listener);
+		}
+
+
+	三、Logger实现：LoggerBase实现了Lifecycle接口
+		1。LoggerBase只是实现了其中一个log函数log(String message)，其它的log函数都是调用这个接口。所以派生类都只要重载这一个log函数就可以了。
+
+		2. FileLogger类将来自container的所有string都写入一个文件，并加上时间戳。
+			1）FileLogger实例化时会创建一个log文件，将当时的时间作为log文件名。并且每天它都会建立一个新的log文件。
+			2）FileLogger打开log文件：直接创建，创建成功或失败都能打开那个log文件（失败表已存在）。然后new 一个PrintWriter
+			3）FileLogger关闭log文件：
+									PrintWriter.flush();
+									PrintWriter.close();
+									PrintWriter = null;
+									date = "";
+
+			4）FileLogger 写 log文件： 获得时间戳以及时间的形式变换，然后用PrintWriter 打印log。并以时间戳为前缀。
+
+	四、The Application： 用FileLogger来实现写log
+
+		// ------ add logger --------
+		System.setProperty("catalina.base",
+		System.getProperty("user.dir"));
+		FileLogger logger = new FileLogger();
+		logger.setPrefix("FileLog_");
+		logger.setSuffix(".txt");
+		logger.setTimestamp(true);
+		logger.setDirectory("webroot");
+		context.setLogger(logger);
+		//--------------------------
+
+
+
+第八章 loader
+
+	两个术语：1）repository：class loader搜寻目标的目录
+		2）resources：
+
+	一、Java的class loading机制
+		1.每次创建一个java class实例的时候，JVM都会用class loader在core lib和CLASSPATH中寻找class再load进内存，以下是java中的三种loader：
+			1）bootstrap class loader用于bootstrap JVM以及各种跟JVM版本相关的 各种core class（像java.lang,java.io等）、各种core lib(像rt.jar, i18n.jar等).
+				bootstrap必须用本地语言实现，因为是它负责启动JVM。
+			2）extension class loader，它会自动load标准扩展目录/jdk/jre/lib/ext下的jar。
+			3）system class loader，默认的loader，它会搜索CLASSPATH定义的目录和jar文件
+
+		2.load的流程：
+			1）每一次要load class时都是先调用system class loader，它会先调用extension class loader处理，而extension class loader又会先调用bootstrap class loader处理，bootstrap class loader处理不了了再回头让extension class loader处理
+			这种delegate的流程可以极大的增加load的安全性：假如app要load一个java.lang.object这样的core class，则system class loader会最终交给bootstrap class loader来load，而bootstrap class loader肯定会load正确的标准java.lang.object
+			*** 也就是说，标准的特定的class要交给标准的特定的loader来代理启动，其它的class交给默认的loader来启动 ***
+
+	二、为什么Tomcat的web application (context)要定义自己的loader
+		1.需要在标准的class loader上加上自己的load规则。如：所有servlet应该只能load WEB-INF目录下的class文件和WEB-INF/lib下的文件。
+		2.需要缓冲前面load的class
+		3.需要预先load 部分class
+		4.需要支持自动reload
+	
+	三、如何实现Tomcat的loader：	
+		1.Tomcat的loader意味着它是一个web app的loader ———— org.apache.catalina.loader.WebappClassLoader，而不是一个class loader。
+			1)使用对象org.apache.catalina.loader.WebappLoader实现org.apache.catalina.Loader接口；
+			2)使用对象org.apache.catalina.loader.WebappClassLoader，它继承java.net.URLClassLoader，实现org.apache.catalina.loader.Reloader接口；
+			3)在对象org.apache.catalina.loader.WebappLoader中包含对象org.apache.catalina.loader.WebappClassLoader；
+
+			4)org.apache.catalina.loader.WebappLoader使用org.apache.catalina.loader.WebappClassLoader实现load功能；
+			****** （即WebappLoader是classloader的管理者，而WebappClassLoader才是Tomcat具体使用的classloader）******
+	
+	四、org.apache.catalina.Loader接口（是一个classloader的管理接口，管理实际进行load操作的所有ClassLoader）
+
+		1.默认情况下servlet只能使用WEB-INF/classes和WEB-INF/lib两个目录下的class，其它的包括CLASSPATH定义的目录都不能访问。
+		2.如果调用了org.apache.catalina.Loader接口的addRepository()，则可以增加servlet的load目录。而findRepositories()则会返回现有的Repository数组。
+		3.getContainer()&setContainer()用于联系container和loader，而此时一般的container都是指context（webapp）。
+		4.modified()会返回true，如果repositories中有那个class被修改，这时tomcat就会reload那个class（由Context的reload()来执行）。
+		5.要实现reload，就必须在server.xml文件中打开它:
+			<Context path="/myApp" docBase="myApp" debug="0" reloadable="true"/>
+		6.当实现一个customer的loader，则需要指定它是否使用parent loader来代理执行标准的特定的class的load任务。接口为getDelegate() & setDelegate().
+		
+			public interface Loader {
+				public ClassLoader getClassLoader();
+				public Container getContainer();
+				public void setContainer(Container container);
+				public DefaultContext getDefaultContext();
+				public void setDefaultContext(DefaultContext defaultContext);
+				public boolean getDelegate();
+				public void setDelegate(boolean delegate);
+				public String getInfo();
+				public boolean getReloadable();
+				public void setReloadable(boolean reloadable);
+				public void addPropertyChangeListener(PropertyChangeListener
+				listener);
+				public void addRepository(String repository);
+				public String[] findRepositories();
+				public boolean modified();
+				public void removePropertyChangeListener(PropertyChangeListener
+				listener);
+			}
+		7.当一个container的invoke()被调用后，它首先调用loader的getClassLoader()以获得loader，再调用loadclass()以load具体的servlet。
+	四、org.apache.catalina.loader.Reloader接口
+		
+		public interface Reloader {
+			public void addRepository(String repository);
+			public String[] findRepositories ();
+			public boolean modified();
+		}
+
+	五、org.apache.catalina.loader.WebappLoader类
+		1.它就是在container中调用start()启动loader时启动的对象，它会启动一个java.lang.Runnable，用这个线程循环调用modified()来检测是否需要reload相应的servlet。
+		2.WebappLoader的Start()：（以下分别讨论这几点）
+			1）Creating a class loader
+			2）Setting repositories
+			3）Setting the class path
+			4）Setting permissions
+			5）Starting a new thread for auto-reload.
+		3.Creating a class loader
+			三个函数：getLoaderClass()+setLoaderClass(String loaderClass)和getClassLoader()：
+			1）setLoaderClass()设置WebappLoader类使用哪个loader类名，getLoaderClass()获得这个类名
+			2）要使用loader时，WebappLoader用setLoaderClass()设置的那个类名new一个loader。
+			3）getClassLoader（）得到new的那个loader。
+		4.Setting Repositories
+			1）setRepositories()用于 增加 class的repositories，如WEB-INF/classes
+			2）setJarPath（）用于增加lib目录，如WEB-INF/lib
+		5.Setting Permissions
+			当 security manager启动了的话，setPermissions()用于赋予对class等目录的权限。如果security manager没有启动的话，就不用它了。
+		6.auto-reload
+			1）使用了一个新的线程每隔 x秒(默认15) 来检测资源的date stamp，如果有更新，则reload
+			2）在Tomcat5中，org.apache.catalina.core.StandardContext的backgroundProcess()用于检测改变的class。周期性地被 *** 调用
+			3）当检测到有class需要reload时，不会直接调用reload，会再起另外一个线程来reload。
+	
+	六、WebappClassLoader类（相当于在systemloader之外的一个loader，用于默认调用WEB-INF下的class）
+		1.WebappClassLoader是由前几章的java.net.URLClassLoader继承而来，并进行了优化
+			1)它会缓存之前load的class
+			2)它会自动在指定的Repositories中搜寻class和jar
+
+		2.缓存机制
+			1）对于WebappClassLoader类来讲，每一个class文件或jar文件，都是一个resource，而resource都用org.apache.catalina.loader.ResourceEntry来描述和表示，
+			2）有两个HashMap，第一个resourceEntries存储缓存的resource，key就是resources名字；第二个notFoundResources存储没找到的resources。
+
+		3.load的具体步骤：
+			1）搜索local cache
+			2）调用findLoadedClass()搜索cashe。
+			3）两个cache都没有的话，就调用system's class loader来load class
+			4）如果SecurityManager启用了的话，先检测能否load，如果不能的话，抛出ClassNotFoundException
+			
+			5）如果delegate flag为true，或者class属于package trigger，就优先使用parent class loader，当parent class loader等于null，就优先使用system class loader
+			6）如果delegate flag为false，而且在repositories中没有找到对应的class，就优先使用parent class loader，当parent class loader等于null，就优先使用system class loader
+			7）如果还是没有找到对应的class，就抛出ClassNotFoundException
+	
+	七、The Application
+		StandardContext:它就是使用一个listener，listen它自己发过来的一些事件，如START_EVENT、STOP_EVENT等
+		1.实例化一个StandardContext和一个SimpleContextConfig，并把SimpleContextConfig注册成StandardContext的一个listener（使用addLifecycleListener），
+		2.设置class搜寻目录：System.setProperty("catalina.base", System.getProperty("user.dir")); ------------>这也是Bootstrap的起始行。
+		3.启动Connector connector = new HttpConnector();
+		4.用两个wrapper包装本例的两个servlet。
+		5.生成并设置Context。-------->   <Context path="/myApp" docBase="myApp"/>
+		6.将wrapper放入Context
+		7.生成listener并注册到Context 
+			LifecycleListener listener = new SimpleContextConfig();
+			((Lifecycle) context).addLifecycleListener(listener);
+		8.加入loader到Context：
+			Loader loader = new WebappLoader();
+			context.setLoader(loader);
+
+		9.调用connector和context的start().   ------> 如果要停止，调用stop()
+
+
+	总结：本章主要根据Java的class load原则，确定要做一个自定义的loader。这个功能由两个类配合实现：WebappLoader类主要实现联系container，配置loader的作用。而WebappClassLoader类用于实现具体的load工作。
+
+
+
+第九章 Session Management
+	概述：Catalina使用org.apache.catalina.Manager来支持对session的管理。一个manager通常管理一个context对应的所有sessions。
+	manager主要实现的功能就是对session的   ***增删改查***。
+	
+	一、org.apache.catalina.connector.HttpRequestBase实现了接口javax.servlet.http.HttpServletRequest。主要实现上述的 增（create） 的功能
+	在HttpRequestBase中，跟session相关的接口有：getSession()，doGetSession()
+
+	二、默认情况下，manager将session保存在内存中，但也支持保存在文件或者JDBC数据库中。所有的跟session或者session manager相关的东西都在org.apache.catalina.session
+ 	package中
+
+
+	三、Sessions
+		1.Session相关的类图：一个session对象必须是StandardSession的对象，因为StandardSession实现了javax.servlet.http.HttpSession接口。但为了实现对	StandardSession的安全访问，用StandardSessionFacade包装StandardSession，通过StandardSessionFacade访问StandardSession。（StandardSessionFacade也实现HttpSession接口）
+		2.StandardSession不仅实现javax.servlet.http.HttpSession，而且实现Session接口
+
+		3.Session接口：
+			1）Session对象一般都存在于一个manager中，它使用setManager()&getManager()来跟manager联系；
+			2）每个Session对象都有一个id，使用setId()&getId()来处理；
+			3）每当session对象被访问时，它的最近访问时间会被更新。而getLastAccessedTime()接口用于让manager获取它的最近访问时间以set session对象的有效性
+
+		4.StandardSession类：实现了三个接口：Session（用于Tomcat对session的管理），HttpSession（用于servlet对session的使用），Serializable
+			1）构造函数：public StandardSession(Manager manager);
+			2）一个HashMap对象 attributes。它以k:v的形式保存此session中所有的信息（？？？）：
+
+				protect HashMap attributes = new HashMap();
+				// the authentication type used to authenticate our cached Principal,
+				if any
+				protect transient String authType = null;
+				protect long creationTime = 0L;
+				protect transient boolean expiring = false;
+				protect transient StandardSessionFacade facade = null;
+				protect String id = null;
+				protect long lastAccessedTime = creationTime;
+				// The session event listeners for this Session.
+				protect transient ArrayList listeners = new ArrayList();
+				protect Manager manager = null;
+				protect int maxInactiveInterval = -1;
+				// Flag indicating whether this session is new or not.
+				protect boolean isNew = false;
+				protect boolean isValid = false;
+				protect long thisAccessedTime = creationTime;
+
+			3) getSession()实现：
+				public HttpSession getSession() {
+					if (facade == null)
+						facade = new StandardSessionFacade(this);
+					return (facade);
+				}
+
+			4）如果session有超过manager中maxInactiveInterval的时间没有被访问了，则manager会调用Session的expire(boolean notify)函数。此函数在StandardSession类中的实现主要做了以下几件事情：
+				a)将session setValid(false);
+				b)将session从manager中删除：manager.remove(this);
+				c)将session中所有内容删除：
+					for (int i = 0; i < keys.length; i++)
+						removeAttribute(keys[i], notify);
+				d)发送各种session事件
+
+
+		5.StandardSessionFacade类：用于只暴露HttpSession中的接口给servlet。
+
+
+	四、Manager接口: 用接口org.apache.catalina.Manager表示；最基本的实现为ManagerBase；在ManagerBase上有两个典型实现：StandardManager & PersistentManager
+		
+
+		2.Manager接口：
+			getContainer()&setContainer()用于联系session和context()
+			add(Session session)用于将session加入Session HashMap
+			setMaxInactiveInterval()用于设定session的保活周期；
+			load()&unload()用于支持session对象的永久存储。
+		3.Manager和Context之间的关系：
+			Context为一个WebApp，对应一个线程集；Wrapper为一个Servlet，对应一个socket连接线程（因为Tomcat是用单进程多线程实现的并发）
+			每个Context拥有一个Manager，每个Manager管理一个Session HashMap，管理着各个Session的增删改查；
+			
+			************综上面两点，猜测：：：一个连接对应一个servlet，对应一个线程，对应一个session对象。**************
+		
+		4.ManagerBase抽象类：实现了一些基本功能，如：createSession(),产生一个unique identifier,add(),remove(),findSessions()等等。
+
+		5.StandardManager：是Tomcat在运行时的标准Manager。
+			1)实现了Lifecycle接口，所以在start()时，StandardManager将Session对象load()到内存中；在stop()时，将Session对象unload()到文件；然后在Tomcat下次启动时重新load这些session对象。
+			2)unload()的实现：将valid的session对象serializes到一个叫SESSIONS.ser的文件中；
+
+			3）session对象的销毁：另起一个单独的check线程（实际是在StandardContext的backgroundProcess中），循环检查每个session的lastAccessedTime到现在有没有超过maxInactiveInterval,有的话就调用expire()进行销毁
+
+		6.PersistentManagerBase(PersistentManager同)：它跟StandardManager的区别就是它不仅在内存中保存session对象，还在swap中（就是虚拟内存也就是硬盘上）保存session对象。这样做的好处有两个，一个就是在crash时数据可以重新load，另一个就是可以在内存不够的情况下，把长时间不运行的session暂时放到swap中去。（内存中的session是swap中session的子集）
+			
+			1）在进行back-up时，用private Store store = null;来指向备份的session对象
+			2）跟StandardManager销毁对象一样，另起一个单独的check线程（实际是在StandardContext的backgroundProcess中）专门用于循环swap-out和back-up以及销毁session对象。此时销毁就要将内存中和swap中的备份都要删掉。
+			3）swap-out的规则：如果是session太多，则随便swap哪些session，直到数量小于maxActiveSessions；如果是有的session空闲太长时间，则根据minIdleSwap and maxIdleSwap来判断是否要swap-out；如果maxIdleSwap为负数，则永远不会被swap-out
+			4）back-up规则：并不是所有的session对象都会被back-up，只有那些空闲时间超过了maxIdleBackup的session对象才会被back-up。
+
+
+
+	五、Stores接口:用接口org.apache.catalina.Store表示，用于sessions的永久保存。里面最主要的两个函数load和save：save用于将指定session存储到硬盘，load用于根据session id将一个session load进内存；keys()将返回session id的字符串数组。
+
+		1.StoreBase抽象类：在Tomcat5上基本什么都没做。
+
+		2.FileStore类：
+			1）将session对象存储成文件：id.session，放在setDirectory()设置的目录下面；
+			2）FileStore类使用java.io.ObjectOutputStream和java.io.ObjectInputStream来实现对象的输入输出，所以所有的Session里的对象都必须实现java.lang.Serializable接口。
+
+		3.JDBCStore类：将session对象存入DB，需要完成JDBC的设置等。
+
+
+	六、Servlet如何访问它所在context的session manager：
+		1.Servlet找到它的请求对象javax.servlet.http.HttpServletRequest，调用它的getSession();
+		2.要想在getSession()中能访问manager，就必须先找到manager的context；
+		3.要想能找到context，就必须在SimpleWrapperValve的invoke()中调用request的setContext()，而且必须在调用servlet的service()之前设置完成。
+			1）SimpleWrapperValve找到它的Wrapper; -----> SimpleWrapper wrapper = (SimpleWrapper) getContainer();
+			2）Wrapper通过getParent()找到context；
+			3）调用request的setContext()
+			4）调用context的getManager()找到session manager
+		也就是说在request对象中包含了当前的context，session manager等全局信息。（对于webapp来讲，一个context就是一个“进程”，包括对应session manager包含的所有连接线程）
+
+
+		
+	总结：session对象保存着一个连接的相关信息，包括临时信息和属性配置信息等。这是servlet和Tomcat都需要的。
+
+
+
+第十章 Security
+	概述：通过配置web.xml文件，servlet可以设定一些内容是限制访问的。本章就是解释container如何实现对内容访问的限制。
+
+		1. context start()时，将一个authenticator作为valve 来set到context的pipeline；
+		2. 请求到来时，authenticator valve调用realm的authenticate()来访问保存 username&pwd的 collection以验证，如果验证通过，则调用下一个valve，将request交给servlet，反之则不提交request。
+
+	本章先讲跟servlet 编程相关的安全组件realms, principals, roles等等，然后再用一个servlet程序来说明怎么使用它们
+
+
+	一、Realm：Realm用于验证一对username&pwd的正确性；一个context对应一个Realm，用container.setRealm()设定Realm。
+
+		1.Tomcat在默认情况下，username&pwd存储在tomcat-users.xml文件中，Realm负责对这个文件的访问；或者也会存储在一个DB中
+
+		2.org.apache.catalina.Realm接口：它最重要的四个函数是：
+			public Principal authenticate(String username, String credentials);
+			public Principal authenticate(String username, byte[] credentials);
+			public Principal authenticate(String username, String digest,String nonce, String nc, String cnonce, String qop, String realm,
+			String md5a2);
+			public Principal authenticate(X509Certificate certs[]);
+
+		3.org.apache.catalina.realm.RealmBase，Realm接口的抽象类
+		
+		4.相关的实现类：JDBCRealm, JNDIRealm, MemoryRealm, and UserDatabaseRealm
+
+		
+	二、Principal：挂于一个Realm中
+		1.catalina使用的Principal是org.apache.catalina.realm.GenericPrincipal，它实现接口java.security.Principal
+
+		2.Principal会验证username&pwd，并且会调用hasrole()来得到这个user是否是某个role
+
+
+	三、LoginConfig
+		1.由类org.apache.catalina.deploy.LoginConfig表示，它提供接口以获得realm和auth名字：getRealmName()&getAuthName()。四种AuthName：BASIC, DIGEST, FORM,CLIENT-CERT
+
+		2.Tomcat启动的时候，首先读取web.xml文件，如果有login-config元素，则根据它创建一个LoginConfig对象。然后authenticator valve调用getRealmName()获得realm name 并将它发送到client并显示在登录窗口上。如果name为空，则发送server的名字和端口
+
+	四、Authenticator，接口为org.apache.catalina.Authenticator
+		1.Authenticator的基本类为org.apache.catalina.authenticator.AuthenticatorBase，它继承自org.apache.catalina.valves.ValveBase，同时实现org.apache.catalina.Authenticator接口
+	
+		2.一些常用Authenticator类：BasicAuthenticator，FormAuthenticator，DigestAuthentication，SSLAuthenticator
+
+		3.当没有指定一个valve用于认证时，用NonLoginAuthenticator来验证。它只验证安全性，不用于认证身份
+
+		4.认证过程：
+			1）因为AuthenticatorBase继承valve又实现Authenticator，所以它的invoke()会调用authenticate接口来执行验证并得到结果
+			
+
+		
+	五、一个Context对应一个LoginConfig对应一个authenticator，LoginConfig中的auth-method属性指定authenticator类型（BasicAuthenticator等）属性为None时用NonLoginAuthenticator
+
+		1）每一个StandardContext都有一个org.apache.catalina.startup.ContextConfig对象用于指定一些动态的配置，例如authenticator
+		2）ContextConfig还负责authenticator的初始化和挂载到pipeline。
+
+
+
+	六、The Applications
+		只是在第九章的例子上，为SimpleContextConfig类增加了一个BasicAuthenticator对象和authenticatorConfig()
+
+		1.ContextConfig用于把某个AuthenticatorBase挂载到context的一个valve上。
+
+
+	总结：基本流程就是将一个context的组件Realm挂到AuthenticatorBase，再将AuthenticatorBase挂到context的valve；最后invoke()调用Realm组件的authenticate()来执行认证
+	另外，如果有LoginConfig，则是根据LoginConfig来配置生成realm
+	*** 关于javax.security有待学习 ***
+
+
+
+第十一章 StandardWrapper
+	本章先介绍Http request处理相关的一系列接口，然后介绍javax.servlet.SingleThreadModel接口，最后介绍StandardWrapper&StandardWrapperValve类
+
+	一、Http请求处理流程：(以只有context和wrapper为例)
+
+		1.connector调用StandardContext的invoke()，
+		2.invoke()调用pipeline的invoke（），然后调用StandardContextValve的invoke()，它通过map找到对应的wrapper，再调用StandardWrapper的invoke()
+		3.invoke()调用pipeline的invoke（），然后调用StandardWrapperValve的invoke()，它负责启动对应的servlet。
+		*** StandardWrapper及其basic valve的invoke()完成四件事情：alloc，load，init，service ***
+		*** 本章的主要内容就是介绍StandardWrapper&StandardWrapperValve完成的这四件事情 ***
+
+
+	二、SingleThreadModel接口 
+
+		1.实现javax.servlet.SingleThreadModel接口的servlet叫做SingleThreadModel servlet
+		2.SingleThreadModel servlet保证了它每次只处理一条http请求，也就是说，一个servlet在某个时间点只会被一个线程调用，它的service()只会被一个线程调用。
+		3.为了保证上述结果，可以用一个singleton来表示servlet，或者用一个servlet pool(预分配一些servlets，提高性能)来管理servlet，每次拿出一个新的servlet来使用	
+		4. SingleThreadModel并没有保证线程安全，因为虽然它保证每条request只对应一个servlet，但如果有多个request，则对应要有多个servlets，如果这些servlets的service()要访问同一个资源，或访问同一个静态变量等等就不能保证线程安全。
+
+	
+	三、StandardWrapper   ---------------------->servlet的load和init
+			1）StandardWrapper在第一次收到对应请求时才会load servlet
+
+			2）当servlet不是STM servlet时，Wrapper只load一次servlet，并使用它来处理所有request。这样的话，servlet程序必须自己保证它的service()是线程安全的。
+			3）当servlet是STM servlet时，service()只要保证对静态变量和公共资源的线程安全
+
+		1.Allocating the Servlet：
+			StandardWrapper的相应接口：public javax.servlet.Servlet allocate() throws ServletException;
+			1）allocate()大致分为两部分，一部分处理non-STM servlets，另一部分处理STM servlets
+			2）用loadServlet()来判读是否STM servlets
+
+				if (!singleThreadModel) {
+					private Servlet instance = null;
+
+					instance = loadServlet();
+					countAllocated++;
+				}
+				synchronized (instancepool) {
+					// returns an instance of the servlet from the pool
+					private Stack instancePool = null;
+					private int maxInstances = 20;
+					private int nInstances = 0;
+
+					while(1){
+						if (nInstances < maxInstances) {
+							instancePool.push(loadServlet());
+							nInstances++;
+						}
+						else {
+							instancePool.wait();
+						}
+					}
+
+				}
+
+		2.Loading the Servlet:
+			1)loadServlet()用于load，它也分为两种情况：STM servlets和non-STM servlets，还有就是JSP文件也要处理
+
+			if ((actualClass == null) && (jspFile != null)) {
+				Wrapper jspWrapper = (Wrapper)((Context) getParent()).findChild(Constants.JSP_SERVLET_NAME);
+				if (jspWrapper != null)
+					actualClass = jspWrapper.getServletClass();
+			}
+
+			2)确定要load以后，接下来就是loader的工作了：
+
+				Loader loader = getLoader();
+				ClassLoader classLoader = loader.getClassLoader();
+
+				classClass = classLoader.loadClass(actualClass);
+
+			3)此时，已经load完成，开始instantiate:
+				servlet = (Servlet) classClass.newInstance();
+
+			4)然后再做安全性检查：
+				if (!isServletAllowed(servlet))
+
+			5)然后再检测这个servlet是否是内部servlet，是的话连上wrapper：
+				if ((servlet instanceof ContainerServlet) && isContainerProvidedServlet(actualClass)) {
+					((ContainerServlet) servlet).setWrapper(this);
+				}
+			6)最后，再调用init():
+				servlet.init(facade); ------------->  facade就是一个一个javax.servlet.ServletConfig
+			
+			7)如果是loadOnStartup（启动时load），则此时要立刻调用service()并发送AFTER_INIT_EVENT事件
+				// Invoke jspInit on JSP pages
+				if ((loadOnStartup > 0) && (jspFile != null)) {
+					// Invoking jspInit
+					HttpRequestBase req = new HttpRequestBase();
+					HttpResponseBase res = new HttpResponseBase();
+					req.setServletPath(jspFile};
+					req.setQueryString("jsp_precompile=true");
+					servlet.service(req, res);
+				}
+			8）如果是STM servlets，则要加入servlet pool了：
+				if (singleThreadModel) {
+					if (instancePool == null)
+						instancePool = new Stack();
+				}
+				fireContainerEvent("load", this);
+
+
+			9）最终，得到load的servlet： return servlet;
+
+		3.ServletConfig -----> 用于servlet.init(facade);
+			ServletConfig也是StandardWrapper在Wrapper之外implement的接口，但上面的servlet.init(facade)中facade不是StandardWrapper，而是被封装了大部分公共接口的StandardWrapperFacade。它主要为servlet 的 init提供四个函数接口：
+			1）public ServletContext getServletContext()：它必须调用parent（StandardContext）的getServletContext()来得到一个ServletContext对象
+				public ServletContext getServletContext() {
+					if (parent == null)
+						return (null);
+					else if (!(parent instanceof Context))
+						return (null);
+					else
+						return (((Context) parent).getServletContext());
+				}
+
+			2)public java.lang.String getServletName()：它返回servlet的name：
+				public String getServletName() {
+					return (getName());
+				}
+
+			3）public java.lang.String getInitParameter(java.lang.String name)
+			用于返回初始化参数：private HashMap parameters = new HashMap();
+			      初始化参数保存在hash表中，getInitParameter是以name为输入取出hash表中的一个参数
+
+			4）public java.util.Enumeration getInitParameterNames()
+			用于返回hash表中所有的name，以枚举值的形式返回：
+				public Enumeration getInitParameterNames() {
+					synchronized (parameters) {
+						return (new Enumerator(parameters.keyset()));
+					}
+				}
+
+		4.StandardWrapper不能有child，addchild只会抛出异常；StandardWrapper的setParent()只能是context，否则抛出异常。
+		
+		5.StandardWrapperFacade:实现servlet对StandardWrapper的间接访问，主要就是封装第三点讲的四个get函数
+			1）为了在servlet.init()时能将StandardWrapper本身作为ServletConfig传进去，便使用了StandardWrapperFacade作为proxy放入。
+
+			2）在StandardWrapper中构造StandardWrapperFacade：
+			private StandardWrapperFacade facade = new StandardWrapperFacade(this);
+
+			3）在StandardWrapperFacade中的构造函数：
+			public StandardWrapperFacade(StandardWrapper config) {
+				super();
+				this.config = (ServletConfig) config;
+			}
+
+	四、StandardWrapperValve  ---------------------->servlet的service
+		1.StandardWrapperValve主要就做两件事情：执行servlet所有的filters以及调用service()。它的invoke()函数步骤如下：
+			1）获取servlet：servlet = wrapper.allocate();
+			2）创建filter链：ApplicationFilterChain filterChain = createFilterChain(request,servlet);
+			3）执行filter链里的所有filter，并调用service()：filterChain.doFilter(sreq, sres);
+			4）释放filter链：filterChain.release();
+			5）释放servlet：wrapper.deallocate(servlet);
+			6）卸载servlet：wrapper.unload();
+
+		2.FilterDef：代表一个filter定义
+			1）description：filter的描述string
+			2）displayName：filter的显示名称
+			3）filterClass：filter类名
+			4）filterName：filter的名字，此为唯一
+			5）largeIcon：大图标
+			6）parameters：一个hash map的初始化参数集合
+			7）smallIcon：小图标
+
+		3.ApplicationFilterConfig
+			它实现了javax.servlet.FilterConfig接口，负责管理所有webapp的filter对象
+
+			1）public ApplicationFilterConfig(Context context, FilterDef filterDef)
+			其中context指web app，而FilterDef指filter的定义
+			2）getFilter()：load一个filter对象并实例化：
+				if (this.filter != null)
+					return (this.filter);
+
+				// Identify the class loader we will be using
+				String filterClass = filterDef.getFilterClass();
+				ClassLoader classLoader = null;
+				if (filterClass.startsWith("org.apache.catalina."))
+					classLoader = this.getClass().getClassLoader();
+				else
+					classLoader = context.getLoader().getClassLoader();
+
+				ClassLoader oldCtxClassLoader = Thread.currentthread().getContextClassLoader();
+				
+				// Instantiate a new instance of this filter and return it
+				Class clazz = classLoader.loadClass(filterClass);
+				this.filter = (Filter) clazz.newInstance();
+				filter.init(this);
+				return (this.filter);
+				
+		4.ApplicationFilterChain
+			它实现了javax.servlet.FilterChain接口，是在StandardWrapperValve类的invoke的第二、三步中创建和执行
+			
+			1）ApplicationFilterChain的 doFilter 函数接口：
+				public void doFilter(ServletRequest request, ServletResponse response) 
+				它只需调用第一个Filter的doFilter()，如下：
+
+			2）Filter的 doFilter 函数接口：
+				public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain){
+					
+					// 做本Filter需要做的事情
+					...
+					//再通过chain调用下一个Filter，如果本Filter已经是最后一个，则chain会调用servlet的service()
+					chain.doFilter(request, response);
+				}
+
+			ApplicationFilterChain的doFilter()会调用第一个filter的doFilter(),并将它自己作为FilterChain传入，然后在Filter的 doFilter()中实现调用的传递
+	
+
+	五、The Application
+
+
+
+
+	总结：本章的主要内容就是介绍StandardWrapper&StandardWrapperValve对Servlet完成的这四件事情：alloc，load，init，service。其中前三个都是在StandardWrapper的invoke()的alloc中；而service()是在StandardWrapperValve的invoke()中，而且它在调用service之前还要处理servlet的所有filters。
+
+
+
+
+
+
+
+
+第十二章、StandardContext
+它就是使用一个listener，listen它自己发过来的一些事件，如START_EVENT、STOP_EVENT等
+
+	概述：StandardContext不仅有Wrapper，还有其它大量的组件，像loader，manager等
+
+
+	一、StandardContext Configuration
+		1.StandardContext实例化以后start(),如果start失败，则StandardContext的available属性为false
+
+		2.为了start成功，需要先对StandardContext正确配置，比如说
+			1）读取全局web.xml文件和当前web.xml文件的内容应用到webapp，
+			2）挂载authenticator valve和 certificate valve
+
+
+		3.StandardContext的配置过程：
+			1）start()时两条线索：一条继续启动其它组件和子container；另一条通知lifecycle-listener configurator，让它调用所有相关组件进行配置；
+			2）当第一条线启动完成后，检测第二条线配置结果，如果配置成功，则设置available属性为true，否则为false并stop所有第一条线启动的组件。
+			3）Tomcat的 用于配置的lifecycle-listener 是 org.apache.catalina.startup.ContextConfig；
+
+		
+	二、StandardContext部分内容介绍
+		1.构造函数：
+			public StandardContext() {
+				super();
+				pipeline.setBasic(new StandardContextValve());
+				namingResources.setContainer(this);
+			}
+
+		2.start()过程（Tomcat5的start()包括了一些JMX-related coding）
+			1）Fires the BEFORE_START event.
+			2）Sets the availability property to false.
+			3）Sets the configured property to false.
+			4）Sets the resources.
+			5）Sets a loader
+			6）Sets a manager
+			7）Initializes the character set mapper.
+			
+			** 以下两步为实现了Lifecycle的组件 **
+			8）Starts other components associated with this context
+			9）Starts child containers (wrappers)
+			10）Starts the pipeline
+			11）Starts the manager
+			12）发送START事件给所有listener. ContextConfig开始配置工作. 成功的话设置configured为true
+			13）Checks configured属性. true的话 load wrappers并设置 availability为true.但如果configured为false的话调用stop()停止之前启动的所有组件
+			14)Fire the AFTER_START event.此时可以开始接收http请求了
+
+			？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？
+
+			？？？？？？ ContextConfig的配置工作和其它子组件的start()是两个线程并发执行吗 						？？？？？？
+			？？？？？？ 子container.start()和loadOnStartup(findChildren())即第13步为什么是重复的  				？？？？？？
+			？？？？？？ 是否是先配置所有components再load wrappers？如果配置失败的话，stop的是所有已启动的components，而不是wrappers？	？？？？？？
+			？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？
+
+		3.Invoke()过程：（由上一级container或connector调用）
+			1)Tomcat4:
+				它首先判断app是否正在reload，如果是，就等到它完成；再调用它的父类的invoke()；然后再做别的：
+			
+				while (getPaused()) {
+					Thread.sleep(1000);
+				}
+				super.invoke(request, response); -----> 即ContainerBase.invoke()
+
+			2)Tomcat5:
+				它没有invoke(),上一级container或connector直接调用ContainerBase的invoke().然后在StandardContextValve里判断app是否正在reload。
+
+
+	二、StandardContextMapper
+		在一个http请求到来的时候，StandardContextValve.invoke()最终会被调用到，它所需要做的第一件事情就是用context's mapper找到对应的wrapper，再调用wrapper.invoke().而在用mapper之前必须调用ContainerBase的findMapper()找到相应的mapper。
+
+		1.在context start()的时候addDefaultMapper(this.mapperClass);来将container对应到它的mapper
+			并且private String mapperClass = "org.apache.catalina.core.StandardContextMapper";
+		2，反之，也要用mapper.setContainer()来将mapper对应到它的container。
+
+		*** context与Mapper是一一对应的 ***
+
+		3.Mapper最重要的函数就是public Container map(Request request, boolean update)，map的过程实际上就是根据Request中的URI来找到对应servlet的过程：
+			1）找到相对路径：  
+					String contextPath = ((HttpServletRequest) request.getRequest()).getContextPath();
+					String requestURI = ((HttpRequest) request).getDecodedRequestURI();
+					String relativeURI = requestURI.substring(contextPath.length());
+					
+					就是说requestURI = contextPath + relativeURI；
+
+			2）如果是精确Map：
+				if (!(relativeURI.equals("/")))
+					name = context.findServletMapping(relativeURI);
+				if (name != null)
+					wrapper = (Wrapper) context.findChild(name);
+				if (wrapper != null) {
+					servletPath = relativeURI;
+					pathInfo = null;
+				}
+
+			3）如果是泛型map：
+				name = context.findServletMapping(servletPath + "/*");
+				if (name != null)
+					wrapper = (Wrapper) context.findChild(name);
+				if (wrapper != null) {
+					pathInfo = relativeURI.substring(servletPath.length());
+				}
+				int slash = servletPath.lastIndexOf('/');
+				servletPath = servletPath.substring(0, slash);
+
+			4）如果是后缀名map：
+
+				...
+
+			5）最后是默认map：
+				name = context.findServletMapping("/");
+				if (name != null)
+					wrapper = (Wrapper) context.findChild(name);
+				if (wrapper != null) {
+					servletPath = relativeURI;
+					pathInfo = null;
+				}
+
+
+		   ***  6）在Tomcat5中，没有Mapper接口，它的功能被封装在request对象中，并在StandardContextValve的invoke()函数中调用
+Wrapper wrapper = request.getWrapper(); 以实现相应的wrapper匹配。
+
+
+
+
+
+
+
+	三、Reloading:如果reloadable属性为true，那么当web.xml文件改变，WEB-INF/ 目录下的文件被重新编译都将导致app的reload。
+		1.在Tomcat4中，用WebappLoader来做reload。它会先用setContainer(Container)将自己联系到一个context，并用context属性设置自己的reloadable：
+			setReloadable( ((Context) this.container).getReloadable() );
+			然后在这个函数中会根据reloadable前后的变化来start和stop它的auto reload 线程
+		
+		2.在Tomcat5中，reload不是用一个单独的线程，而是用backgroundProcess方法。
+
+
+
+	四、backgroundProcess
+		StandardContext的工作需要很多其它组件的并行配合，像reload的自动检查，manager的check expiration等。在Tomcat4上都是用它们各自独立的线程来实现，而在Tomcat5中，为了提高性能，统一用一个线程来实现：backgroundProcess()。如果有一个container或component要周期性地做什么事情，则将这些代码都写入它自己的backgroundProcess()中
+		
+		1.在ContainerBase的start()函数中的threadStart()函数用于启动这个backgroundProcess线程
+			protected void threadStart() {
+				thread = new Thread(new ContainerBackgroundProcessor(), threadName);
+				thread.setDaemon(true);
+				thread.start();
+			}
+
+			其中ContainerBackgroundProcessor实现Runnable接口，它的run函数形式如下：
+			public void run() {
+				while (!threadDone) {
+					try {
+						Thread.sleep(backgroundProcessorDelay * 1000L);
+					}
+					processChildren(container, cl);	-------------> 当前container的处理函数
+				}
+			}
+
+			protected void processChildren(Container container, ClassLoader cl) {
+				container.backgroundProcess();		------------------> 处理当前container的周期事件，如StandardContext的loader，manager
+				Container[] children = container.findChildren();
+				for (int i = 0; i < children.length; i++) {
+					if (children[i].getBackgroundProcessorDelay() <= 0) {
+						processChildren(children[i], cl);	-----------> 处理子container的周期性事件
+					}
+				}
+			}
+
+
+		2.相当于将多个时间定时器放在一个定时器里处理一样，ContainerBackgroundProcessor的每一个周期都会递归调用所有的child的backgroundProcess().
+
+
+	总结：start()时的两条线索：start和config。invoke()和Mapping的流程，reload的流程，backgroundProcess的流程
+
+
+第十三章 Host and Engine
+
+	Host：当在一个Tomcat中需要部署多于一个context时，都会用host作为context的父容器（当然还有别的实现）
+	Engine：表示整个Catalina servlet引擎，它是顶级容器，默认只有一个；它的子容器只能是host，至少有一个默认host
+
+	一、Host接口
+		public interface Host extends Container {
+			public String getAppBase(); ----------------> 返回本host上app的根目录，可以是绝对路径、相对路径或URL
+			public boolean getAutoDeploy(); -------------> 如果返回true，则此host上的所有webapp都会被自动发现和部署
+			public DefaultContext getDefaultContext();
+			public String getName(); --------------------> 返回本container的合法虚拟主机名
+			public void importDefaultContext(Context context); -------------> 用DefaultContext的config来配置 输入参数context
+		    ****public Context map(String uri); --------------------------返回对应URI的context，在StandardHost中实现
+		}
+
+	二、StandardHost，StandardHostMapper和StandardHostValve
+
+		StandardHost继承于org.apache.catalina.core.ContainerBase，实现Host和Deployer接口
+	
+		1.构造函数：
+			public StandardHost() {
+				super();
+				pipeline.setBasic(new StandardHostValve());
+			}
+
+		2.Start()函数：（跟StandardContext一样，Tomcat5的start()包括了一些JMX-related coding）
+			public synchronized void start() throws LifecycleException {
+				Valve valve = (Valve) Class.forName(errorReportValveClass).newInstance();
+				addValve(valve);
+
+				// Set dispatcher valve
+				addValve(new ErrorDispatcherValve());
+				super.start();
+			}
+			其中：private String errorReportValveClass = "org.apache.catalina.valves.ErrorReportValve";
+
+		3.Invoke():
+			1) StandardHost本身没有此函数，所以先调用ContainerBase.Invoke()
+			2) 再调用StandardHostValve.Invoke()，它负责三件事：处理loader；处理session manager；和使用Mapper找到对应的context来处理http请求
+
+		4.为什么必须要有一个Host：因为在ContextConfig类中引用了String hostName =  context.getParent().getName();除非自己写一个ContextConfig。
+
+	三、Host作为顶级容器的App：
+		connector.setContainer(host);
+		((Lifecycle) connector).start();
+		((Lifecycle) host).start();
+
+	五、Engine接口
+		Engine可以跟一个service相关联。
+		public interface Engine extends Container {
+			public String getDefaultHost();   -------------> 返回默认host name
+			public String getJvmRoute();  -------------> 返回此engine的JvmRouteId
+			public Service getService();  -------------> 返回相关的Service
+			public void addDefaultContext(DefaultContext defaultContext);  -------------> 设置DefaultContext，它是所有新的webapp的范本
+			public DefaultContext getDefaultContext();  -------------> 
+			public void importDefaultContext(Context context);  -------------> 将DefaultContext导入到一个新的webapp中
+		}
+
+	六、StandardEngine
+		1.构造函数：
+			public StandardEngine() {
+				super();
+				pipeline.setBasic(new StandardEngineValve());
+			}
+
+		2.子container只能是host：
+			public void addChild(Container child) {
+				if (!(child instanceof Host))
+					throw new IllegalArgumentException(sm.getString("StandardEngine.notHost"));
+				super.addChild(child);
+			}
+		3.作为顶级容器，它没有父容器，setparent()只是抛出异常；
+
+	七、StandardEngineValve
+		public void invoke(Request request, Response response, ValveContext valveContext)
+		函数主要就是
+			1）处理HTTP Request起始行的URI信息；
+			2）Map相应的host，并调用host.invoke(request, response)；
+
+	八、Engine作为顶级容器的App：-----> 这个步骤将在下一章规范化
+		connector.setContainer(engine);
+		((Lifecycle) connector).start();
+		((Lifecycle) engine).start();
+
+
+	总结：Host只是讲了相关的Mapper和StandardHostValve； Engine只是讲了和它相关的host，service以及StandardEngineValve
+
+
+第十四章 Server and Service
+
+	在前面几章我们了解了怎样将一个connector和一个container组合成一个servlet容器。并且8080端口也只能有一个connector负责监听并提供http服务。如果有多个connectors，多个containers，我们如何来规范实现它们的start()和stop()呢，这就是本章要解决的问题：
+				我们使用server & service这两个组件来提供这项功能
+
+	一、Server 接口：
+		1.org.apache.catalina.Server代表整个catalina及其所有组件，它提供了一种优雅的解决方案以启动和停止整个系统，有了它就不必分别地去启动和停止connector和container
+
+		2.工作机制：当你启动一个Server的时候，它就会将它的内部components全部启动，然后一直等待停止命令；你只要发送一个shutdown命令到指定端口，Server就能收到并stop它内部的所有components
+
+		3.Server使用Service组件来包含像container、connectors等相关组件。
+
+		4.接口定义：
+			public interface Server {
+				public String getInfo();  --------------------> 返回Server实现的描述信息和相应版本号：description/version
+				public NamingResources getGlobalNamingResources();  --------------------> 返回全局资源名字
+				public int getPort();  --------------------> shutdow命令发送的接口
+				public void setPort(int port);
+
+				public String getShutdown();  --------------------> 返回shutdown的命令（即用户需要在命令行输入的 命令字符串）
+				public void setShutdown(String shutdown);
+
+				public void addService(Service service);  --------------------> 在Service集合里增加一个新的service
+				public Service findService(String name);  --------------------> 获取某个service
+				public Service[] findServices();  --------------------> 获取整个service集合
+				public void removeService(Service service);  --------------------> 删除某个service
+
+				public void await();  --------------------> 循环等待，直到收到正确的shutdown命令
+
+				public void initialize() throws LifecycleException;  --------------------> start-up之前要做的事情
+			}
+		
+			里面的shutdown属性保存对应的关闭命令字符串，port保存shutdown必须发往的端口，每一个server都有一个service集合
+
+
+	二、StandardServer：我们主要关注它的shutdown机制，另外还有一些跟server configuration（保存在server.xml）相关的函数；一个Server可以有0到多个service。
+		StandardServer的生命周期共有四个函数：
+		1.initialize() --> 用于初始化所有包含的services
+			public void initialize() throws LifecycleException {
+				if (initialized)
+					throw new LifecycleException (sm.getString("StandardServer.initialize.initialized"));
+				initialized = true;
+
+				// Initialize our defined Services
+				for (int i = 0; i < services.length; i++) {
+					services[i].initialize();
+				}
+			}
+		initialized用于防止第二次初始化，因为就算是stop之后再start，也不需要再次initialize
+
+		2.start() --> 启动所有的service，相应的，connectors和container也就启动了；
+			StandardServer和Service都是lifecycle，所以它们以lifecycle的机制start。
+			通过started属性和stop()函数交替调用
+
+		3.await() --> 循环等待直到收到shutdown（默认端口8085）
+			1）其实就是new了一个ServerSocket并accept在8085，就实现了循环等待的功能。
+			2）当socket收到一个正确的shutdown命令时就会break并close socket；也就停止了循环等待，接下去执行stop()
+
+
+		4.stop() --> 停止所有的子组件
+			也是以lifecycle的机制stop。
+
+
+	三、Service
+		1.Service组件可用于包含一个container以及多个connectors。这样，就可以在多个端口对外提供http服务，每个端口（connectors）都跟那唯一的container联系
+
+		2.Service接口：
+			public interface Service {
+				public Container getContainer();  --------------------> 获取此service对应的那个container
+				public String getInfo();  --------------------> 返回service实现的描述信息和相应版本号：description/version
+				public String getName();  --------------------> 返回service名字
+				public Server getServer();  --------------------> 获取service对应的那个server
+				public void addConnector(Connector connector);  --------------------> 新增一个connector，并将connector加入到connectors集合中
+				public Connector[] findConnectors();  --------------------> 返回connector集合
+				public void removeConnector(Connector connector);  --------------------> 从connector集合中将一个connector移除
+				public void initialize() throws LifecycleException;  --------------------> 将所有的connector都bind在服务端口上
+			}
+
+	四、StandardService
+		1.它的initialize初始化所有的connectors
+		2.它实现了Lifecycle接口，所以它的start()接口会调用它的container以及所有connectors的start()；而connectors的start()又会调用connectors的initialize()
+			1）它会先调用container.start(),再调用connectors.start()；
+			2）它会先调用connectors.stop(),再调用container.stop();
+		3.Service可包含多个connectors的特性使得它不仅可以支持多个连接，也可以支持每个连接用不同的协议；
+			private Container container = null;
+			private Connector connectors[] = new Connector[0];
+
+		4.service，container，connector之间的联系：
+			service.setcontainer();service.addconnector();
+			connector.setcontainer(); ----------------> 这一步在上面两步中已经自动完成
+
+	五、The Application:主要演示了StandardServer的start()和stop()
+		1）以下两步代替了前面几章的connector.setContainer(engine);
+			service.addConnector(connector);
+			service.setContainer(engine);
+
+
+	总结：   //////////////////////////////////////////////
+		///					   ///
+		///   Server&Service属于管理面而不是服务面     ///
+		///					   ///
+		//////////////////////////////////////////////
+
+		我们使用server & service这两个组件来统一管理整个catalina中所有的connectors和containers。每个server有多个service，每个service有一个container(Engine)和多个connectors。当catalina启动时，只要调用server.start()，则里面会循环调用所有的service.start();然后每个service.start()都会调用container.start()&所有的connectors.start()。然后进入server.await()。最后进入server.stop()。
+	
+
+
+
+第十五章 Digester
+	1）在之前的所有章节中，Tomcat启动的步骤都是在Bootstrap中，new一个connector，再new一个container，再new所有的组件，再全部add到container上去，然后再connecter.addContainer().最后再将connector.init(),connector.start(),container.start()。
+	2）这样做的缺点就是所有的组件都是hard code，不管改动那个组件都必须重编译。所以必须使用间接的方式，Tomcat将所有的组件都写在server.xml文件中。这样，开发者就可以通过简单的改这个配置文件的方式来改变Tomcat中的组件----->只需重启而不需重编
+	3）web.xml包含了对一个webapp的配置信息，由于一个context代表一个webapp，所以web.xml实际上也是一个context的配置信息
+	4）Digester就是一个开源库，它用于将XML元素转换成Java对象
+
+	一、Digester
+		1.Digester由三个package组成：
+			1）org.apache.commons.digester负责XML文件的解析
+			2）org.apache.commons.digester.rss
+			3）org.apache.commons.digester.xmlrules
+
+		2.Digester三个包统一lib为：commons-digester.jar
+
+		3.Digester中一些最重要的或与Tomcat相关的type：
+			1）Digester类：org.apache.commons.digester.Digester
+				它负责XML文件的解析，程序员先设定它要对XML中的哪些elements做解析，然后再调用它的parse()。
+
+			2）Pattern：以下例子说明：
+				<?xml version="1.0" encoding="ISO-8859-1"?>
+				<employee firstName="Brian" lastName="May">
+					<office>
+						<address streeName="Wellington Street" streetNumber="110"/>
+					</office>
+				</employee>
+
+				employee元素的Pattern为employee；office元素的Pattern为employee/office；address元素的Pattern为employee/office/address
+
+			3）Rules:在Digester中的一个Rule(Pattern,rule)的Hash表。而rule类对象中最重要的两个函数就是start()&end()
+				在Digester解析之前，会将它需要解析的Pattern（节点）和rule设计配对好，放入Rules表中；如addObjectCreate就是将一个create的rule和对应节点放入表中
+				在Digester.parse()时，会读一个需要解析的Pattern，然后再到Rules这个hash表中去查找这个Pattern对应的所有rules对象，然后调用rule对象的start()&end(),如果是<employee>就调用start()，如果是</employee>就调用end()；
+				Rule与Pattern是多对多的关系
+				
+			4）Digester的解析过程：
+				a)首先获取root element，比如说employee，然后再遍历Rules中所有的rule对象，假如有跟employee元素相关的rule，则调用此rule的begin()。
+				b)再按照上诉动作对每一个element都做一遍，像上例中的office，address
+				c)首先获取</office>，再遍历Rules，执行所有匹配rule的end().
+				d)再按照上诉动作对每一个element都做一遍，方向与之前相反，像上例中的address，employee
+
+			5）Digester有很多预定义的rules，需要的话还可以添加自定义rules。一旦使用了add等为一个元素对象增加了rule，则在解析这个元素时它的rule函数都会被调用一遍
+				a)创建对象rule：digester.addObjectCreate("employee", employee.class);
+					创建的对象会放在一个stack中，并提供对这个对象的peek，push，pop等操作
+				b)设置属性rule：digester.addSetProperties("employee");
+					为employee这个pattern的所有属性都创建一个set函数以及对象属性
+				c)增加自定义rule：digester.addCallMethod(pattern,methodName)就是为指定pattern增加一个rule函数，然后就可以这样用：
+					pattern.methodName();
+				d)创建对象间的联系：Digester有一个内部stack用于存储由addObjectCreate()生成的所有对象。
+					addSetNext(pattern, methodName);
+					其中pattern为firstObject/secondObject形式，methodName为firstObject的一个函数，函数参数为secondObject
+					*** 有时firstObject是secondObject的父元素 ***
+					eg:	
+						digester.addObjectCreate("employee","Employee");
+						digester.addObjectCreate("employee/office","Office");
+						digester.addSetNext("employee/office", "addOffice");
+					
+				e)public void setValidating(boolean validating)决定Digester在解析前是否validated against a schema
+
+			
+		4.Digester Example 1：一个元素对应一个Java对象，此元素的所有属性都对应对象的属性；此元素的所有子节点也都对应对象的属性；
+			public class Employee {
+				private String firstName;
+				private String lastName;
+				private ArrayList offices = new ArrayList();
+			}
+
+			public class Test01 {
+				public static void main(String[] args) {
+					String path = System.getProperty("user.dir") + File.separator +"etc";
+					File file = new File(path, "employee1.xml");
+					Digester digester = new Digester();
+
+					// add rules
+					digester.addObjectCreate("employee","ex15.pyrmont.digestertest.Employee");
+					digester.addSetProperties("employee");
+					digester.addCallMethod("employee", "printName");
+
+					Employee employee = (Employee) digester.parse(file); ---------> 返回值为stack中的第一个对象
+					System.out.println("First name : " + employee.getFirstName());
+					System.out.println("Last name : " + employee.getLastName());
+				}
+			}
+
+
+
+			解析：在Employee employee = (Employee) digester.parse(file);之后，Digester开始打开xml文件并开始解析：
+			1）首先，它遇到第一个元素employee，就触发它之前增加的三个rules；create，addset，addcall。。。
+
+		5.Digester Example 2：构建两个对象，和对象之间的联系。
+			
+			1)xml文件：
+			<?xml version="1.0" encoding="ISO-8859-1"?>
+			<employee firstName="Freddie" lastName="Mercury">
+				<office description="Headquarters">
+					<address streetName="Wellington Avenue" streetNumber="223"/>
+				</office>
+				<office description="Client site">
+					<address streetName="Downing Street" streetNumber="10"/>
+				</office>
+			</employee>
+
+			2）Digester类：
+			public class Test02 {
+				public static void main(String[] args) {
+					String path = System.getProperty("user.dir") + File.separator +"etc";
+					File file = new File(path, "employee2.xml");
+					Digester digester = new Digester();
+
+					// add rules
+					digester.addObjectCreate("employee","ex15.pyrmont.digestertest.Employee");
+					digester.addSetProperties("employee");
+					digester.addObjectCreate("employee/office","ex15.pyrmont.digestertest.Office");
+					digester.addSetProperties("employee/office");
+					digester.addSetNext("employee/office", "addOffice"); ----> 会调用一个employee.addOffice(office);
+					digester.addObjectCreate("employee/office/address","ex15.pyrmont.digestertest.Address");
+					digester.addSetProperties("employee/office/address");
+					digester.addSetNext("employee/office/address", "setAddress");
+
+					Employee employee = (Employee) digester.parse(file);
+					ArrayList offices = employee.getOffices();
+					Iterator iterator = offices.iterator();
+
+					while (iterator.hasNext()) {
+						Office office = (Office) iterator.next();
+						Address address = office.getAddress();
+						System.out.println(office.getDescription());
+						System.out.println("Address : " + address.getStreetNumber() + " " + address.getStreetName());
+					}
+				}
+			}
+
+		6.Digester Example 3: 使用RuleSet给Digester添加Rules表：相当于把设置Rule表的动作给独立出去，放在RuleSet的addRuleInstances()里
+			1）void addRuleSet(RuleSet ruleSet)：另一种为Digester增加rules的方法，其中RuleSet为org.apache.commons.digester.RuleSet接口；
+			2）RuleSetBase抽象类：它实现了getNamespaceURI(),只差addRuleInstances()；
+
+				import org.apache.commons.digester.Digester;
+				import org.apache.commons.digester.RuleSetBase;
+				public class EmployeeRuleSet extends RuleSetBase {
+					public void addRuleInstances(Digester digester) {
+						// add rules
+						digester.addObjectCreate("employee",
+						"ex15.pyrmont.digestertest.Employee");
+						digester.addSetProperties("employee");
+						digester.addObjectCreate("employee/office",
+						"ex15.pyrmont.digestertest.Office");
+						digester.addSetProperties("employee/office");
+						digester.addSetNext("employee/office", "addOffice");
+						digester.addObjectCreate("employee/office/address",
+						"ex15.pyrmont.digestertest.Address");
+						digester.addSetProperties("employee/office/address");
+						digester.addSetNext("employee/office/address", "setAddress");
+					}
+				}
+
+				public class Test03 {
+					public static void main(String[] args) {
+						String path = System.getProperty("user.dir") + File.separator + "etc";
+						File file = new File(path, "employee2.xml");
+						Digester digester = new Digester();
+						digester.addRuleSet(new EmployeeRuleSet());
+
+						Employee employee = (Employee) digester.parse(file);
+						ArrayList offices = employee.getOffices();
+						Iterator iterator = offices.iterator();
+						while (iterator.hasNext()) {
+							Office office = (Office) iterator.next();
+							Address address = office.getAddress();
+						}
+					}
+				}
+
+
+
+	
+
+	二、ContextConfig：它是StandardContext的一个Listener，当StandardContext启动时，它会负责配置StandardContext并设置configured变量
+		1.挂载authenticator到valve，挂载certificate valve；
+		2.解析默认web.xml文件和webapp的web.xml文件，并生成相应的Java对象；但就算没有这两个文件，ContextConfig也会继续；
+		3.负责为每一个servlet创建一个StandardWrapper；（不再需要手动创建）
+
+		LifecycleListener listener = new ContextConfig();
+		((Lifecycle) context).addLifecycleListener(listener);
+		//listen函数：
+		public void lifecycleEvent(LifecycleEvent event) {
+			if (event.getType().equals(Lifecycle.START_EVENT))
+				start();
+			else if (event.getType().equals(Lifecycle.STOP_EVENT))
+				stop();
+		}
+
+		private synchronized void start() {
+			defaultConfig();  ----------------> default web.xml
+			applicationConfig();  ----------------> webapp web.xml
+
+			validateSecurityRoles();
+			certificatesConfig();
+			authenticatorConfig();
+
+			context.setConfigured(true);
+		}
+
+
+		4.defaultConfig
+		5.applicationConfig
+			4&5 这两个都是用webDigester来解析：
+
+		6.webDigester:它就是ContextConfig用于解析两个web.xml的Digester；所有的rules设置都是在createWebDigester();中完成：
+			private static Digester webDigester = createWebDigester();
+			
+			private static Digester createWebDigester() {
+				Digester webDigester = new Digester();
+
+				webDigester.addRuleSet(new WebRuleSet()); -------> 其中WebRuleSet为RuleSetBase的子类
+				return (webDigester);
+			}
+
+			** 请参考WebRuleSet的定义，重点为它的addRuleInstances()函数 **
+
+
+	总结：一个xml文件对应一个Digester类，Digester中的stack中保存着所有的xml中的对象
+	     每个xml元素都对应一个Java对象，每个属性和子元素都对应Java对象的一个属性；
+		1）用<Pattern,rule>构造hash表
+		2）用Digester.parse()过程就是 先读入<employee>，调用跟它对应的所有rule的start()；再读入</employee>，用跟它对应的所有rule的end()； 
+		3）在调用create rule的start()时构造对象完成后，将对象放入stack。在create rule的end()时从stack中弹出对象
+		其实也就是横向变纵向：先将rule挂上去，像valve一样，再把rule都执行一遍，像invoke()一样
+
+		4）另外rule表的构造也可独立出来，放在RuleSet的addRuleInstances()函数中
+
+	     接下来就是ContextConfig如何用webDigester来完成defaultConfig & applicationConfig的配置工作
+
+
+第十六章 Shutdown Hook
+
+	一般情况下，如果一个app要退出必须按照一个指定的流程来进行，这样才能做好清理工作。但如果用户没有按流程来，就会引发很多问题。所以在Java中，使用一个专门的shutdown进程来执行app，不管用户如何关闭app，shutdown进程都会执行app的clean-up代码，而为了做到自动执行clean-up代码，就用到了shutdown hook。
+
+	Java中，在收到两种事件后，虚拟机会自己shutdown：
+		1.两种正常退出情况：System.exit()被调用或者 所有的非守护线程退出；
+		2.非正常退出：包括强制退出JVM，在关闭程序前退出系统登录等；
+	但不管以那种方式退出，虚拟机的shutdown都会分以下两步进行：
+		1.启动所有注册的shutdown hooks，每个hook一个线程，同时执行
+		2.JVM调用所有未激发的finalizers
+
+	** 本章的主要内容就是实现第一步：向JVM注册一个hook，这样在JVM退出时就会执行app里的一些clean-up代码。而hook其实就是java.lang.Thread的子类实现。
+	
+	一、如何实现一个hook：
+		1.实现一个java.lang.Thread的子类对象，并在run()方法中加入clean-up的代码；
+		2.用当前Runtime的addShutdownHook()将hook注册到JVM；
+		
+		** hook只会且一定会由JVM调用，所以app不再需要正常退出的clean-up代码了（但也可以有） **
+		
+		3.Application:
+			public class ShutdownHookDemo {
+				public void start() {
+					ShutdownHook ShutdownHook = new ShutdownHook();
+					Runtime.getRuntime().addShutdownHook(ShutdownHook);
+				}
+				public static void main(String[] args) {
+					ShutdownHookDemo demo = new ShutdownHookDemo();
+					demo.start();
+					System.in.read();
+				}
+			}
+
+			class ShutdownHook extends Thread {
+				public void run() {
+					System.out.println("Shutting down");
+				}
+			}
+
+		4.第二个App：
+			主要要注意的一点就是ShutdownHook已经是一个inner class，它可以访问所有的主类中的函数。
+			另外就是在正常退出函数中也可通过显式调用shutdown()来处理clean-up工作；
+
+
+	二、Tomcat中如何使用shutdown hook：
+		1.在org.apache.catalina.startup.Catalina中有一个inner类CatalinaShutdownHook，它在server.start()时注册到Runtime的addShutdownHook()；并在run()函数中调用了server.stop()，以保证server一定能正常stop。
+		protected class CatalinaShutdownHook extends Thread {
+			public void run() {
+				if (server != null) {
+					((Lifecycle) server).stop();
+				}
+			}
+		}
+
+	
+	总结：主要就是在JVM层提供了一个保证无条件调用clean-up代码的机制
+
+
+
+
+第十七章 Tomcat Startup（如何启动一个catalina）
+
+	Tomcat的启动分为两部分：Bootstrap和Catalina，其中Bootstrap用于创建一个Catalina并调用它的Process；而Catalina是用于start&stop一个Server对象，同时解析Server.xml。之所以分为两部分，是因为Bootstrap的实现方式有很多种，其中在Windows下就是以windows service的形式启动
+	*** Catalina.java中好像已经没有main()函数了 ***
+
+	一、Catalina：Catalina有它自己的main()函数，但它一般还是由Bootstrap调用process(String args[])来启动，此函数有多个参数；
+			1）设置两个系统参数：catalina.home和catalina.base，它们一般都为user.dir，而user.dir一般是系统command启动的地方；
+			2）处理输入参数：如果输入参数有-config，则它之后的参数就是configFile；
+			3）处理完参数后，根据之前的参数动作：start()和stop()；
+
+		1.start()函数内容
+			1）creat一个Start Digester对象，在对server.xml的解析中，Digester首先将Catalina对象作为根对象放入Digester的stack；
+			2）读入一个Server对象，放入stack；并调用Server.init()、Server.start()、Server.await()和Server.stop()；并在start()中加入shutdown的hook
+
+		2.stop()函数内容
+			1）发送一个shutdown命令给Server对象，将其停止；
+	
+
+		3.Start Digester：
+			createStartDigester() 函数把所有server.xml中的元素都读出来构造相应的对象，将其放入stack，并设置对象之间的父子关系：addSetNext()
+
+			** 记住在加入根元素server到stack之前，Digester就已经将Catalina放入了stack **
+
+		4.Stop Digester：只需要获取server这个root元素，然后用它来stop。
+
+
+
+
+	二、Bootstrap：整个Tomcat的main()函数所在。startup.sh命令，实际就是启动它的main()函数；它会创建class loader，用其中一个load catalina，再调用它的process().
+		1.创建三个class loader：commonLoader，catalinaLoader，sharedLoader
+			1）创建这三个loader的目的就是防止servlet启动了Tomcat自己的class。默认情况，用户只允许启动WEB-INF/classes，WEB-INF/lib下的class和jar文件。
+			2）这三个loader的顺序是
+			    commonLoader = createClassLoader("common", null); ---> 最高级的loader，catalinaLoader&sharedLoader的父Loader
+			    catalinaLoader = createClassLoader("server", commonLoader); ---> 处理catalina本身class的load
+			    sharedLoader = createClassLoader("shared", commonLoader); ---> 处理servlets共享class，并且是所有servlets自有loader的父Loader
+
+			**  另外，commonLoader，应该也是Java中systemloader的子loader吧 ？？？  **
+
+		2.用catalinaLoader load catalina，再找到并调用它的process()；
+
+
+
+	三、使用shell scripts来帮助记忆启动参数，以启动servlet container。
+
+		1.四大脚本文件：catalina.sh, startup.sh, shutdown.sh, setclasspath.sh。
+
+		2.编写Linux shell脚本 部分知识：
+			1）编辑sh脚本：sh文件本质上就是一个文本文件，可用各种文本编辑器编辑。注意之前要chmod +x scriptName
+			2）执行sh脚本，三种方式： bash scriptName；  sh scriptName；  ./scriptName
+	
+		3.Tomcat相关的shell脚本命令：
+			1）comment：用“#”来表示注释；如：echo Hello # print Hello
+			2）clear：用于清屏，如：
+					     clear 
+					     echo Shell scripts are useful
+			3）exit：
+				exit 0；---> 正常退出 exit 1 ---> 异常退出
+			4）echo：向console输出String；如：echo Hello World
+			5）. :调用一个函数或调用另一个shell脚本；如：. ./test.sh就是启动当前目录下的test.sh脚本
+			6）变量定义：myVar=Tootsie   ---------> =前后没有空格，变量名大小写敏感；
+			   设置变量为NULL，两种方式：myVar=；myVar=""；
+			   用‘$’访问变量，如：echo $myVar
+			   Linux有很多系统变量：如HOME表用户主目录；PWD表当前位置；PATH表示command寻找路径等
+			7）expr：对一个表达式求值；表达式是在一对 反引号 中括住的部分，反引号就是键盘上 ‘1’ 左边的那个键；
+				如：sum=`expr 100 + 200`；echo `expr 200 + 300`
+				`uname`表达式表示OS的名称；例如：echo `uname`将打印出字符串“Linux”
+				`dirname filePath`表求文件的目录：如`dirname /home/user1/test.sh`表达式指的就是/home/user1
+
+			8）就像函数一样，sh文件一样有参数：用$1可引用它的第一个参数，$2引用它的第二个参数，$#得到参数的个数，$@返回所有的参数
+				另：$0得到的是启动本脚本的命令；如在命令行中运行./test.sh，则$0就是./test.sh
+
+			9）shift：将参数的引用向后推一位：$1得到$2的值，$2得到$3的值，依次类推；
+			10）if语句：
+				if condition then
+					list of commands
+				[
+				elif condition
+					list of commands
+				else
+					list of commands
+				]
+				fi
+
+			    例如：
+				if [ "$1" = "start" ]; then -------------> 中括号之间各有一个空格
+					echo Starting the application
+				fi
+
+				if [ "$1" = "stop" ]; then
+					echo Stopping the application
+				fi
+
+			    典型的if语句条件：
+				-f file, true is file exists
+				-r file, true if you have read access to file
+				-z string, true if string is empty.
+				-n string, true if string is not empty
+				string1 = string2, true if string1 equals string2.
+				string1 != string2, true if string1 is not equal to string2.
+
+			11）for循环语句，语法：
+					for { var } in {list}
+					do
+						list of commands
+					done
+
+					例如：
+					for i in 1 2 3
+					do
+						echo iteration $i
+					done
+
+			12）while循环语句，语法：
+					while [ condition ]
+					do
+						list of commands
+					done
+				
+					例如：
+					n=1
+					while [ $n -lt 3 ];
+					do
+						echo iteration $n
+						n=$((n + 1))
+					done
+
+			13）case语句：
+					case "`uname`" in
+						CYGWIN*) echo cygwin;;
+						OS400*) echo OS400;;
+						Linux*) echo Linux;;
+						*) echo Operating system not recognized;;
+					esac
+
+			*14）输出重定向：主要是重定向到一个文件，例如：echo Hello > myFile.txt；'>'之前的为需要重定向的输出，之后的为重定向到的输出；例如：
+															1>&2为stdout到stderr
+															2>&1为stderr到stdout
+
+			15）逻辑运算：&&和||
+				command1 && command2表示command1返回值为0（表正确）或true时，才会执行command2;
+				command1 || command2表示command1返回值为非0（表错误）或false时，才会执行command2;
+
+
+
+		4.使用catalina.sh来启动和停止Tomcat。当catalina.sh的第一个参数为start时表启动，为stop时表停止。以下为其它一些参数：
+
+			debug. 			Start Catalina in a debugger
+			debug -security. 	Debug Catalina with a security manager 
+			embedded. 		Start Catalina in embedded mode
+			jpda start. 		Start Catalina under JPDA debugger
+			run. 			Start Catalina in the current window
+			run -security. 		Start in the current window with security manager
+			start. 			Start Catalina in a separate window
+			start -security. 	Start in a separate window with security manager
+			stop. 			Stop Catalina
+
+
+		5.为了简化启动Tomcat的操作，我们用start.sh调用catalina.sh来启动。并且在start.sh中设置好环境变量，用参数start调用catalina.sh。
+
+		6.同样的，我们可以用stop.sh调用catalina.sh来停止Tomcat，参数为stop。
+	
+
+	总结：本章主要学习了两个类Catalina & Bootstrap，以及用shell脚本启动和停止catalina。
+		启动的步骤分三步：1）启动Bootstrap以load catalina的class文件，并调用Catalina的process(); ----> 用于测试，正式是用shell脚本来启动Bootstrap的main()
+				2）在process()中解析server.xml以load catalina中从server，service...等组件到Digester的stack；并且调用server.init()
+				3）调用server.start()以启动所有的容器和组件，然后进入server.await()
+
+
+
+第十八章 Deployer（如何启动一个Host）
+
+	当需要部署多于一个webapp时，就需要用一个host。一个webapp（即context）可以是一个WAR文件；也可以直接是一个webapp包，放在webapp目录下面。每一个context都有一个xml形式的descriptor文件。（server.xml是host以上的descriptor，manager.xml是context以下的descriptor）
+
+	Tomcat4和5都有两个用于管理Tomcat及其部署的apps的程序：Manager和Admin。在Tomcat6中，manager是指webapp/host-manager文件夹。
+
+	一、如何使用Deployer来部署webapp。
+		Deployer都是跟一个host相关，并用于部署此host下面的contexts。向一个host部署一个context，就是实例化一个StandardContext，并将其挂载于host（composite模式）。除了通过host的start&stop来控制context的start&stop，deployer也可用于单独start&stop一个context。
+
+		1.org.apache.catalina.startup.HostConfig：（与ContextConfig相对应，ContextConfig是读web.xml，HostConfig是读server.xml。第15章中讨论了context，这里接着讨论host）
+			当host.start()时，HostConfig作为它的listener，它的start()也启动。它会在相应的目录中启动和安装所有的webapps。
+
+		2.HostRuleSet，它是用于host启动的一个ruleset：
+			1）context的ruleset都是在createWebDigester()中完成；host的ruleset都是在createStartDigester()中完成：
+				digester.addRuleSet(new HostRuleSet("Server/Service/Engine/"));
+
+			2）HostRuleSet的addRuleInstances()的工作：
+				就是读取server.xml文件中的“Server/Service/Engine/Host”这个pattern，以生成一个HostConfig对象，作为listener挂载在Host下面
+
+		3.HostConfig的Listen函数：lifecycleEvent()
+			public void lifecycleEvent(LifecycleEvent event) {
+				host = (Host) event.getLifecycle();
+				if (host instanceof StandardHost) {
+					setDeployXML(((StandardHost) host).isDeployXML()); -------------> 确定要不要部署一个context's descriptor文件
+					setLiveDeploy(((StandardHost) host).getLiveDeploy()); -------------> 确定要不要周期性地检查新的部署
+					setUnpackWARs(((StandardHost) host).isUnpackWARs()); -------------> 确定要不要解压以WAR形式部署的app
+				}
+				if (event.getType().equals(Lifecycle.START_EVENT))
+					start ();      ------------------------------------> 具体在这里部署 app  
+				else if (event.getType().equals(Lifecycle.STOP_EVENT))				
+					stop();									
+			}											
+
+		4.详细解析listen()中的start()：
+			start ()的deployApps()里，负责主要的部署工作；它将webapp中所有的context放在一个ArrayList中，并且以路径作为id来区分。
+			之后这三句必须保证ArrayList中没有相同id的context：
+				deployDescriptors(appBase, files);
+				deployWARs(appBase, files);
+				deployDirectories(appBase, files);
+			start()的最后一句是：
+				if (isLiveDeploy()) {
+					threadStart(); -------------> 在它的run()中，定时检测app的web.xml，如有改动则重新deployApps();
+				}
+
+				Tomcat5中用backgroundProcess：
+					public void backgroundProcess() {
+						lifecycle.fireLifecycleEvent("check", null);
+					}
+					public void lifecycleEvent(LifecycleEvent event) {
+					if (event.getType().equals("check"))
+					check();
+					...
+
+					protected void check() {
+						if (host.getAutoDeploy()) {
+							deployApps();
+							checkContextLastModified();
+						}
+					}
+
+
+
+			1）deployDescriptors:部署所有xml文件形式的webapp
+				protected void deployDescriptors(File appBase, String[] files) {
+					if (!deployXML)
+						return;
+					for (int i = 0; i < files.length; i++) {
+						if (files[i].equalsIgnoreCase("META-INF"))
+							continue;
+						if (files[i].equalsIgnoreCase("WEB-INF"))
+							continue;
+						if (deployed.contains(files[i]))
+							continue;
+						File dir = new File(appBase, files[i]); ----------> appBase为Tomcat的webapp目录
+						if (files[i].toLowerCase().endsWith(".xml")) {
+							deployed.add(files[i]);	  -------------> 把xml文件都加入。files为所有目录下文件，deployed为部署的文件
+							// Calculate the context path and make sure it is unique
+							String file = files[i].substring(0, files[i].length() - 4);
+							String contextPath = "/" + file;   ------------> 这里所有的路径都以webapp为根目录
+							if (file.equals("ROOT")) {
+								contextPath = "";
+							}
+							if (host.findChild(contextPath) != null) {
+								continue;
+							}
+							// Assume this is a configuration descriptor and deploy it
+							log(sm.getString("hostConfig.deployDescriptor", files[i]));
+							URL config =new URL("file", null, dir.getCanonicalPath());
+							((Deployer) host).install(config, null);
+						}
+					}
+				}
+
+			2）deployWARs
+
+				deployWARs(File appBase, String[] files) {
+					if (files[i].toLowerCase().endsWith(".war"))
+						deployed.add(files [i]);   -----------> 把war文件同样加入
+
+					((Deployer) host).install(contextPath, url);
+				}
+
+			3）deployDirectories：将整个app的目录都拷贝到webapps下，以实现部署。
+
+	二、Deployer
+
+			++ Deployer、StandardHost、StandardHostDeployer三者构成一个Proxy模式 ++
+
+		1.deployer接口：org.apache.catalina.Deployer：------>  deployer和container一一对应
+			public interface Deployer {
+				public static final String PRE_INSTALL_EVENT = "pre-install";  -----> install()开始之前发送的事件
+				public static final String INSTALL_EVENT = "install";  -----> install()开始之后发送的事件
+				public static final String REMOVE_EVENT = "remove"; -----> remove()调用对应发送的事件
+			
+				public String getName();  -----------------> 返回deployer对应的那个container	
+			
+				public void install(String contextPath, URL war) throws IOException; ----> 把war对应的webapp安装到contextPath对应的context;
+												contextPath为“”用于container的root app；	
+												成功安装后将会发送INSTALL_EVENT事件，并以生成的Context为参数
+					contextPath：app安装路径，必须唯一		
+					war：jar（war）文件或app目录	
+				public void install(URL config, URL war) throws IOException; -----> 用一个config(即一个xml的descriptor)来表示新生成的context
+					config：context的配置文件，用于指示如何生成一个新的context（即取里面的contextPath），对应于上文的deployDescriptors()
+					war：同上
+
+				public Context findDeployedApp(String contextPath);  -----> 用contextPath最为id来查找webapp的context
+				public String[] findDeployedApps();  -----> 返回container中所有app的contextpaths
+				public void remove(String contextPath) throws IOException;  -----> 删除指定contextPath对应的webapp，同时发送REMOVE_EVENT
+				
+				public void start(String contextPath) throws IOException;  -----> 启动一个指定contextPath的webapp，如果已经启动则不作为
+				public void stop(String contextPath) throws IOException;  -----> 停止一个指定contextPath的webapp，如果没有启动则不作为
+			}
+
+		2.标准实现：org.apache.catalina.core.StandardHostDeployer
+			1）StandardHostDeployer的设计完全是配合StandardHost的使用。它的构造函数先确定与StandardHost的联系：
+				public StandardHostDeployer(StandardHost host) {
+					super();
+					this.host = host;
+				}
+			2）用xml config的方式install：install(URL config, URL war)
+				a)在HostConfig的deployDescriptors()中调用StandardHost.install(URL config, URL war)
+				b)StandardHost.install(URL config, URL war)调用StandardHostDeployer.install(URL config, URL war)
+				c)StandardHostDeployer.install(URL config, URL war) 
+				    +++ 其实就是用一个Digester将config中的contextpath元素读出来构造context对象； +++
+			3）用WAR文件install：
+				a)同上
+				b)同上
+				c)StandardHostDeployer.install(String contextPath, URL war)的代码片段：
+					Class clazz = Class.forName(host.getContextClass());
+					Context context = (Context) clazz.newInstance();
+					context.setPath(contextPath);
+					host.fireContainerEvent(PRE_INSTALL_EVENT, context);
+					host.addChild(context);
+					host.fireContainerEvent(INSTALL_EVENT, context);
+
+			4）代替StandardHost来start一个context：
+				public void start(String contextPath) throws IOException {   --------> 由StandardHost.start()调用
+					Context context = findDeployedApp(contextPath);
+					((Lifecycle) context).start();
+				}
+			5）代替StandardHost来stop一个context：
+				public void stop(String contextPath) throws IOException {
+					Context context = findDeployedApp(contextPath);
+					((Lifecycle) context).stop();
+				}
+
+		3.StandardHost实现了Deployer接口，所以StandardHost既是一个Container，也是一个部署到自身的Deployer；
+
+			++ Deployer、StandardHost、StandardHostDeployer三者构成一个Proxy模式 ++
+
+			StandardHost中的代码片段：
+			private Deployer deployer = new StandardHostDeployer(this);
+			public void install(String contextPath, URL war) throws IOException {
+				deployer.install(contextPath, war);
+			}
+			public synchronized void install(URL config, URL war) throwsIOException {
+				deployer.install(config, war);
+			}
+			。。。
+
+
+
+	总结： 1）server.xml是host以上的descriptor，manager.xml是Manager App contexts的descriptor，web.xml是context之内的descriptor
+						（在/webapp下的xml文件都是以xml形式部署的app程序——即context descriptor，manager.xml是其中一个特殊程序）
+	      2）++ Deployer、StandardHost、StandardHostDeployer三者构成一个Proxy模式 ++。Engine作为模式的client角色调用Deployer的实现类StandardHost，而StandardHost调用StandardHostDeployer
+	      3）config就是指manager.xml之类的在/webapp下的xml文件，里面都有context path属性
+
+
+
+第十九章 Manager Servlet：一个专门用于管理webapps的webapp。
+
+	概述：这是一个特殊的app，它是用于管理Tomcat中已经部署的webapp。就是在操作管理Tomcat时的一个GUI程序，放在/webapp/host-manager/下面，在Tomcat启动时install&start
+别的servlet都被严格限制访问Tomcat，但这个servlet却需要访问Tomcat，以完成部署等配置管理工作。
+	一、HostManagerServlet介绍：
+		Manager App最主要的servlet就是ManagerServlet，而在Tomcat6以上就是org.apache.catalina.manager.host.HostManagerServlet。
+		1.HostManagerServlet的主要组件：
+			1）Servlet	
+			2）Servlet-Mapping -----> 指定对应的URL，即在那个URL下本app，即本context，会被调用
+			3）filter
+			4）security-constraint -----> 指定本context可以由哪些role访问
+			5）<login-config> -------> 指定认证使用的realm
+			6）<security-role>  ------> 指定本context有哪些role
+
+		2.HostManagerServlet的功能：参见其源码接口
+
+
+	二、ContainerServlet接口：一个实现ContainerServlet接口的servlet就可以访问包含它的父容器StandardWrapper；———— 这样它就同样可以访问再上面的context、host及其它相应组件
+		public interface ContainerServlet {
+			public Wrapper getWrapper();
+			public void setWrapper(Wrapper wrapper);
+		}
+
+		** servlet对象和wrapper等catalina对象都存在于内存空间中，绝对意义上都可以访问到对方，但因为设计需求就是一般servlet不能访问container，所以人为地设计以限制访问的对等性，（如用facade形式传递参数）。
+
+
+	三、HostManagerServlet
+		HostManagerServlet是ContainerServlet接口的一个实现，它在StandardWrapper中loadServlet中的一段相关代码为：
+
+			// Special handling for ContainerServlet instances
+			if ((servlet instanceof ContainerServlet) && isContainerProvidedServlet(actualClass)) {
+				((ContainerServlet) servlet).setWrapper(this);
+			}
+
+			// Call the initialization method of this servlet
+			instanceSupport.fireInstanceEvent(InstanceEvent.BEFORE_INIT_EVENT, servlet);
+			servlet.init(facade);
+
+			其中：
+			private boolean isContainerProvidedServlet(String classname) {
+				if (classname.startsWith("org.apache.catalina.")) {
+					return (true);
+				}
+				Class clazz = this.getClass().getClassLoader().loadClass(classname);
+				return (ContainerServlet.class.isAssignableFrom(clazz));
+			}
+			其中：
+				isAssignableFrom(clazz)表示class是否是clazz或clazz的父类
+
+
+		** 总之，HostManagerServlet的setWrapper()函数一定会被调用，当wrapper被设进去以后，context、deployer也相应的被设定，这样，HostManagerServlet也就可以通过deployer来做相应的工作 **
+
+
+	四、HostManagerServlet使用
+		1. 列出当前host所有的webapps：
+			1）当收到 http://localhost:8080/manager/list 这样的URL时，根据web.xml的servletmap元素，HostManagerServlet的list()函数会被调用。它会列出所有的webapps路径，及其session等相关信息
+
+		2.Start一个WebApp：
+			1）使用 http://localhost:8080/manager/start?path=/contextPath 的格式来启动一个app。（/contextPath表示app的路径）
+				例如：要启动/admin 则使用
+					http://localhost:8080/manager/start?path=/admin
+				根据web.xml的servletmap元素，HostManagerServlet的start()函数会被调用。
+
+			2）HostManagerServlet的start()方法：
+				protected void start(PrintWriter writer, String path) {
+					Context context = deployer.findDeployedApp(path);
+					deployer.start(path);
+				}
+
+		3.Stop一个WebApp：
+			1）使用 http://localhost:8080/manager/stop?path=/contextPath 的格式来停止一个app。（/contextPath表示app的路径）
+				例如：要停止/admin 则使用
+					http://localhost:8080/manager/stop?path=/admin
+				根据web.xml的servletmap元素，HostManagerServlet的stop()函数会被调用。
+
+			2）HostManagerServlet的start()方法：
+				protected void stop(PrintWriter writer, String path) {
+					Context context = deployer.findDeployedApp(path);
+
+					if (context.getPath().equals(this.context.getPath())) {//HostManagerServlet无法停止它自己
+						writer.println(sm.getString("managerServlet.noSelf"));
+						return;
+					}
+					deployer.stop(path);
+				}
+
+
+	总结：本章讲述了ContainerServlet接口以及它的一个实现HostManagerServlet，它们一个最重要的特点就是可以访问Tomcat的内部类（从wrapper到context，host——deployer）。因此它们就可以用于管理Tomcat中的deployed webapps。
+
+
+
+
+第二十章 JMX：用于管理面的实现（app也好，系统也好，设备也好）
+	版本1.13  本书版本1.2.1
+	概述：对于上一章的HostManagerServlet，它的管理功能非常简单。这一章我们使用JMX（Java Manager Extensions规范）来实现一个更复杂精密的Tomcat管理工具。为了介绍JMX，我们先介绍用于实现Manager Beans的Commons Modeler lib库。而Manager Beans是一种用于管理objects的objects
+
+
+	一、JMX介绍：javax.management包
+		1）JMX是一种开放的协议，它定义了一种管理Java objects的一种标准。
+		2）能用JMX app管理的Java object就称为JMX manageable resource。
+		3）相比于ContainerServlet，JMX提供了一种更为强大而富有弹性的管理功能。所以很多像Tomcat, JBoss, JONAS, Geronimo等等之类的server-based程序都用JMX来管理它们的resource。比如Tomcat的Manager就用JMX来管理包括server, host, context, valve在内的很多container组件。
+
+		1.如何将一个Java object变成一个JMX manageable resource：
+			1）首先要为需要管理的Java object创建MBean。例如在org.apache.catalina.mbeans中就有ConnectorMBean, StandardEngineMBean, StandardHostMBean,StandardContextMBean等。当然，也可以不需要一一对应，可以为多个Java object创建同一个MBean
+
+			2）MBean就相当于被管理的Java object的Proxy，用于控制到底暴露哪些object的方法和属性。Manager不能直接访问被管理的Java object，只能通过MBean访问。
+
+		2.整个JMX的实现：
+			1）MBean对象实例化以后必须注册到MBean server。然后manager必须通过MBean server来访问MBean。
+			** 此时manager程序就相当于client，MBean server就相当于Web服务器Tomcat，而MBean就相当于Servlet一样。 **
+
+			2）JMX也分为三层：instrumentation level,     agent level,        distributed services level
+					 （相当于MBeans）	（相当于MBean server）	（暂时还没有）
+				在JMX规范中，instrumentation层定义实现MBean的标准，agent层定义如何封装MBean server。
+				Agents和它管理的MBeans一般都处于同一个JVM中。有一个默认实现的MBean server。
+
+
+		3.MBeanServer与MBeanServerFactory：
+			1）使用MBeanServerFactory.createMBeanServer()实现javax.management.MBeanServer接口可以得到一个MBean server。
+
+			2）使用MBeanServer.createMBean()和MBeanServer.registerMBean()可以创建和注册一个MBean
+			public ObjectInstance registerMBean(Object object, ObjectName name)
+	    						throws InstanceAlreadyExistsException, MBeanRegistrationException,NotCompliantMBeanException;
+			** 其中object表示要注册的MBean，ObjectName用于在整个MBeanServer中唯一标识一个MBean的key（MBeanServer中有个类似hashmap来保存已注册的MBeans）
+			   返回值ObjectInstance封装了MBean的  ObjectName以及Class Name
+
+			3）public Set<ObjectName> queryNames(ObjectName name, QueryExp query); 
+				--------> 返回以name和query为过滤条件提取到的ObjectName集合。如果name为NULL，则所有ObjectName都会返回
+
+			4）public Set<ObjectInstance> queryMBeans(ObjectName name, QueryExp query);
+				--------> 返回以name和query为过滤条件提取到的ObjectInstance集合。如果name为NULL，则所有ObjectInstance都会返回
+
+			5）根据上面两个接口，一旦得到具体MBean的ObjectName，就可以操作它所对应的Java object
+			6）通过调用MBeanServer的invoke()，可以调用所有MBean的方法。getAttribute()&setAttribute()用于操作一个MBean的属性。
+
+		4.ObjectName：用于唯一标识一个MBean。相当于HashMap中的key。它由两部分构成：a domain和a set of kvp。它的格式为：
+						
+						myDomain:type=Car,color=blue   ---------->  是否它的kvp用于表示它代表的object的成员属性？？
+						
+
+
+
+
+
+	二、Standard MBeans：
+		总共有四种MBean：standard, dynamic, open, model。其中standard是最简单但也是弹性最小的MBean。但Tomcat使用的是model MBean。我们先讨论standard，再讨论
+model MBean
+		1.如何用Standard MBean来管理Java object：
+			1）创建MBean 接口。如为Car对象创建MBean接口，接口名字要为CarMBean
+			2）更改Car的类实现，要求实现CarMBean接口  -------->  （相当于打开了一个CarMBean的访问通道）即要实现对object的管理，必须从object本身开始支持
+			3）为CarMBean实现 创建一个ObjectName
+			
+			4）创建一个agent，此agent class必须包含一个MBeanServer
+			5）实例化MBeanServer
+			6）将CarMBean注册到MBeanServer
+
+			如上所述，Standard MBeans很容易实现，但它需要修改object类本身，当object类有很多的时候，就不太合适了。而别的MBean就不需要修改object类本身。
+
+
+		2.一个实例：
+			public static void main(String[] args) {
+				StandardAgent agent = new StandardAgent();
+				MBeanServer mBeanServer = agent.getMBeanServer();
+
+				//用mBeanServer创建和注册Car类的MBean
+				String domain = mBeanServer.getDefaultDomain();
+				String managedResourceClassName = "ex20.pyrmont.standardmbeantest.Car";
+				ObjectName objectName = new ObjectName(domain + ":type=" + managedResourceClassName);
+				mBeanServer.createMBean(managedResourceClassName, objectName); --> 不需提供MBean的type，因根据命名规则固定为CarMBean，直接注册
+
+				//用mBeanServer操作MBean以操作Car类，包括更改它的属性和调用它的方法（以objectName为参数）
+				Attribute colorAttribute = new Attribute("Color","blue");
+				mBeanServer.setAttribute(objectName, colorAttribute);
+				mBeanServer.invoke(objectName,"drive",null,null);
+			}
+
+
+		看到这里，可能觉得不需要JMX，有一个agent实现就可以管理Java object，但是对于MBean来说，它更重要的一点就是能随心所欲地 暴露和隐藏object的方法和属性。
+
+	三、Model MBeans：
+		Model MBeans的实现要难一点，但它不需要更改被管理的object。
+		1.与Standard MBean比较：它不需要为每个Car创建一个CarMBean接口，它有一个统一的ModelMBean接口。并且，JMX也提供了一个默认实现：RequiredModelMBean
+我们只要实例化它就可以了。只是Tomcat是用一个自己实现的ModelMBean
+
+		2.实现一个ModelMBean最大的挑战就是确定它需要暴露object的哪些方法和属性。这个问题由ModelMBeanInfo来实现。一个ModelMBeanInfo描述了暴露给agent的constructors, attributes, operations, and event listeners。一旦有了一个ModelMBeanInfo，就可以将它挂载到ModelMBean.默认实现：ModelMBeanInfoSupport
+
+		3.ModelMBeanInfo （ModelMBeanInfo描述了整个object，ModelMBeanAttributeInfo描述了object对应的属性部分，其它的类似）
+			ModelMBeanInfo描述的对象					    被描述对象的表示
+			   constructors    -----------------------------------> ModelMBeanConstructorInfo
+			   attributes	   -----------------------------------> ModelMBeanAttributeInfo
+			   operations	   -----------------------------------> ModelMBeanOperationInfo
+			   listeners	   -----------------------------------> ModelMBeanNotificationInfo
+
+			1）ModelMBeanInfo的默认实现：ModelMBeanInfoSupport
+				public ModelMBeanInfoSupport(java.lang.String className,（类名）	
+					java.lang.String description（类描述）, ModelMBeanAttributeInfo[] attributes,
+					ModelMBeanConstructorInfo[] constructors,
+					ModelMBeanOperationInfo[] operations,
+					ModelMBeanNotificationInfo[] notifications)
+
+			2）ModelMBeanAttributeInfo：
+				public ModelMBeanAttributeInfo(java.lang.String name（属性名）, 
+					java.lang.String type（属性类型或类名）, java.lang.String description（属性描述）,
+					boolean isReadable（是否有getter方法）, boolean isWritable（是否有setter方法）,
+					boolean isIs（）, Descriptor descriptor（Descriptor的一个实例，为null时用默认descriptor）)
+					throws RuntimeOperationsException
+
+			3）ModelMBeanOperationInfo:
+				public ModelMBeanOperationInfo(java.lang.String name（方法名）,
+					java.lang.String description（方法描述）, MBeanParameterInfo[] signature（参数数组）,
+					java.lang.String type（返回值类型）, int impact, Descriptor（Descriptor的一个实例）)
+					throws RuntimeOperationsException
+
+		4.ModelMBean实例：
+
+		public static void main(String[] args) {
+			ModelAgent agent = new ModelAgent();
+			MBeanServer mBeanServer = agent.getMBeanServer();
+			
+		//创建一个ModelMBeanInfo
+			ModelMBeanInfo mBeanInfo = null;
+			ModelMBeanAttributeInfo[] attributes = new ModelMBeanAttributeInfo[1];
+			ModelMBeanOperationInfo[] operations = new ModelMBeanOperationInfo[3];
+			
+			attributes[0] = new ModelMBeanAttributeInfo("Color","java,lang.String","the color.", true, true, false, null);
+			operations[0] = new ModelMBeanOperationInfo("drive","drive method", null, "void", MBeanOperationInfo.ACTION, null);
+			operations[1] = new ModelMBeanOperationInfo("getColor","get", null, "java.lang.String", MBeanOperationInfo.ACTION, null);
+
+			Descriptor setColorDesc = new DescriptorSupport(new String[] {
+			"name=setColor", "descriptorType=operation", "class=" + MANAGED_CLASS_NAME, "role=operation"});
+
+			MBeanParameterInfo[] setParams = new MBeanParameterInfo[] {(new MBeanParameterInfo("new color", "java.lang.String","new") )} ;
+			operations[2] = new ModelMBeanOperationInfo("setColor", "set", setParams, "void", MBeanOperationInfo.ACTION, setColorDesc);
+			mBeanInfo = new ModelMBeanInfoSupport(MANAGED_CLASS_NAME, null, attributes, null, operations, null);
+			
+
+		//创建并注册一个modelMBean
+			String domain = mBeanServer.getDefaultDomain();
+			ObjectName objectName =  new ObjectName(domain + ":type=MyCar");
+			String mBeanName = "myMBean";
+			ModelMBean modelMBean = new RequiredModelMBean(mBeanInfo);
+			Car car = new Car();
+			modelMBean.setManagedResource(car, "ObjectReference");
+			mBeanServer.registerMBean(modelMBean, objectName);
+
+		//用mBeanServer操作MBean以操作Car类，包括更改它的属性和调用它的方法（以objectName为参数）
+			Attribute attribute = new Attribute("Color", "green");
+			mBeanServer.setAttribute(objectName, attribute);
+			String color = (String) mBeanServer.getAttribute(objectName, "Color");
+			System.out.println("Color:" + color);
+			
+			attribute = new Attribute("Color", "blue");
+			mBeanServer.setAttribute(objectName, attribute);
+			color = (String) mBeanServer.getAttribute(objectName, "Color");
+			System.out.println("Color:" + color);
+			
+			mBeanServer.invoke(objectName, "drive", null, null);
+		}
+
+
+	四、Commons Modeler library：（默认的model MBean类由 RequiredModelMBean 变成了 BaseModelMBean）
+		正如前面所介绍的，model MBean需要花费大量的工作在ModelMBeanInfo的设定上。所以现在介绍Commons Modeler，它可以帮我们完成ModelMBeanInfo的创建工作。
+
+		1.使用Commons Modeler，我们用org.apache.catalina.modeler.ManagedBean来代替ModelMBeanInfo的工作：
+			1）使用一个描述了所有MBeans的xml文件，这个文件描述了所有MBeans的object类名，所有被暴露的属性名和方法名，以及将要生成的MBeans类名，
+			2）使用org.apache.commons.modeler.Registry读取这个xml文件，根据xml中所有元素依次创建一个MBeanServer以及所有的ManagedBean实例
+			3）再通过ManagedBean的createMBean()来最终创建一个model MBean；
+			4）之后的步骤就跟之前一样，创建一个ObjectName并将它与对应的MBean注册到MBean server
+
+		2.Descriptor 文件：在这个xml文件中，root元素为<mbeans-descriptors> </mbeans-descriptors>；它的每一个子元属都代表了一个mbean；而每个mbean都有四种子元素：attributes, operations, constructors, and notification。
+			1）mbean子元素：<!ELEMENT mbean (descriptor?, attribute*, constructor*, notification*, operation*)>
+			2）mbean属性：	className---ModelMBean的类全名，如果为空，则用默认的org.apache.commons.modeler.BaseModelMBean
+					description
+					domain
+					group
+					name
+					type
+
+			3）每个子元素的属性介绍：attribute，operation（它只会描述public的方法，而且它还有描述函数参数的子元素）
+
+			4）catalina的mbean Descriptor文件就是org.apache.catalina.mbeans包里的mbean-descriptors.xml文件。
+				
+				StandardServer MBean元素实例：
+					<mbean name="StandardServer"			------> mbean 名字
+					  className="org.apache.catalina.mbeans.StandardServerMBean" ------> mbean 类名，默认为BaseModelMBean
+					  description="Standard Server Component"
+					  domain="Catalina"
+					  group="Server"
+					  type="org.apache.catalina.core.StandardServer"> ----> object类名
+						<attribute name="debug"
+							description="The debugging detail level for this component"
+							type="int"/>
+						<attribute name="managedResource"
+							description="The managed resource this MBean is associated with"
+							type="java.lang.Object"/>
+						<attribute name="port"
+							description="TCP port for shutdown messages"
+							type="int"/>
+						<attribute name="shutdown"
+							description="Shutdown password"
+							type="java.lang.String"/>
+						<operation name="store"
+							description="Save current state to server.xml file"
+							impact="ACTION"
+							returnType="void">
+						</operation>
+					</mbean>
+
+			5）catalina提供了很多BaseModelMBean的子类。在以下两种情况下我们需要派生BaseModelMBean:
+				a）想重写object的属性和方法；
+				b）想增加object的属性和方法；
+
+		3.Registry：核心类为org.apache.commons.modeler.Registry，它可以做以下事情：
+			1）可以直接获得一个javax.management.MBeanServer，而不需要用javax.management.MBeanServerFactory来创建MBeanServer
+			2）用loadRegistry()来读取descriptor文件，并构造ManagedBean对象
+
+
+		4.ManagedBean：
+			ManagedBean就是用来取代javax.management.MBeanInfo对象以描述一个model MBean。它可以用createMBean()以生成对应的model MBean
+
+		5.BaseModelMBean：
+			org.apache.commons.modeler.BaseModelMBean类实现了javax.management.modelmbean.ModelMBean接口
+			最主要的属性：protected java.lang.Object resource; 它代表了被管理的object
+
+		6.一个实例：
+			public class ModelAgent {
+				private Registry registry;
+				private MBeanServer mBeanServer;
+
+				public ModelAgent() {
+					
+				}
+
+
+				private ObjectName createObjectName() {
+					ObjectName objectName = null;
+					String domain = mBeanServer.getDefaultDomain();
+					
+					objectName = new ObjectName(domain + ":type=MyCar");
+					
+					return objectName;
+				}
+				public static void main(String[] args) {
+					ModelAgent agent = new ModelAgent();
+					MBeanServer mBeanServer = Registry.getServer();
+
+					//用Registry读取Descriptor以构造一个ManagedBean（取代上面的构造ModelMBeanInfo）
+					URL url = ModelAgent.class.getResource("/ex20/pyrmont/modelmbeantest2/car-mbean-descriptor.xml");
+					InputStream stream = url.openStream();
+					Registry.loadRegistry(stream);
+					stream.close();
+					registry = Registry.getRegistry();
+					ManagedBean managed = registry.findManagedBean("myMBean");
+
+					//根据object和objectName创建ModelMBean，并注册到MBeanServer
+					Car car = new Car();
+					ModelMBean modelMBean = managed.createMBean();  --------> 使用Commons Modeler library的优势，即创建 MBean的方式
+					modelMBean.setManagedResource(car, "ObjectReference");
+					ObjectName objectName = createObjectName();
+					mBeanServer.registerMBean(modelMBean, objectName);
+				
+					//用mBeanServer操作MBean以操作Car类，包括更改它的属性和调用它的方法（以objectName为参数）
+					Attribute attribute = new Attribute("Color", "green");
+					mBeanServer.setAttribute(objectName, attribute);
+					String color = (String) mBeanServer.getAttribute(objectName,"Color");
+					System.out.println("Color:" + color);
+					
+					attribute = new Attribute("Color", "blue");
+					mBeanServer.setAttribute(objectName, attribute);
+					color = (String) mBeanServer.getAttribute(objectName, "Color");
+					System.out.println("Color:" + color);
+
+					mBeanServer.invoke(objectName, "drive", null, null);
+				}
+			}
+
+	五、Catalina's MBeans 
+		Catalina MBeans都在org.apache.catalina.mbeans包中，并且都是org.apache.commons.modeler.BaseModelMBean的子类
+
+		1.ClassNameMBean：只提供一个write-only的className来代表object的类名
+			public class ClassNameMBean extends BaseModelMBean {
+				public ClassNameMBean() throws MBeanException, RuntimeOperationsException {
+					super();
+				}
+				public String getClassName() {
+					return (this.resource.getClass().getName());
+				}
+			}
+
+		2.StandardServerMBean：用于管理org.apache.catalina.core.StandardServer对象。
+			1）它主要重写（调用）了StandardServer的store()方法
+
+			public class StandardServerMBean extends BaseModelMBean {
+				private static MBeanServer mserver = MBeanUtils.createServer();
+
+				public StandardServerMBean()throws MBeanException, RuntimeOperationsException {
+					super();
+				}
+				public synchronized void stored throws InstanceNotFoundException, MBeanException, RuntimeOperationsException {
+					Server server = ServerFactory.getServer();
+					if (server instanceof StandardServer) {
+						((StandardServer) server).store();
+					}
+				}
+			}
+
+		3.MBeanFactory：用于创建和删除Catalina中所有的MBean
+
+	
+		4.MBeanUtil：一个工具类，提供了创建删除MBeans、创建ObjectName的静态函数。整个Catalina的model MBean的操作都是在这里完成，别的地方只要调用就行了。
+
+
+	六、Catalina's MBeans的创建
+
+		1.MBeans的创建：
+			1）在server.xml文件中，有这样的Listener定义：
+				<Server port="8005" shutdown="SHUTDOWN" debug="0">
+					<Listener
+					c1assName="org.apache.catalina.mbeans.ServerLifecycleListener"
+					debug="0"/>
+
+					所以，在StandardServer启动和停止的时候，就会向org.apache.catalina.mbeans.ServerLifecycleListener发送START_EVENT & STOP_EVENT事件：
+					public void start() throws LifecycleException {
+						...
+						lifecycle.fireLifecycleEvent(START_EVENT, null);
+						...
+					}
+
+					public void stop() throws LifecycleException {
+						...
+						lifecycle.fireLifecycleEvent(STOP_EVENT, null);
+						...
+					}
+		
+			2）ServerLifecycleListener收到START_EVENT & STOP_EVENT事件就会触发lifecycleEvent函数：
+				public void lifecycleEvent(LifecycleEvent event) {	    -------------------------------> MBeans开始创建的总入口
+					Lifecycle lifecycle = event.getLifecycle();
+					if (Lifecycle.START_EVENT.equals(event.getType())) {
+						if (lifecycle instanceof Server) {
+							// Loading additional MBean descriptors
+							loadMBeanDescriptors();
+
+							MBeanFactory factory = new MBeanFactory();
+							createMBeans(factory);
+							createMBeans(serverFactory.getserver());	-------------------------------> 以下4）详解
+						}
+					}
+					else if (Lifecycle.STOP_EVENT.equals(event.getType())) {
+						if (lifecycle instanceof Server) {
+							destroyMBeans();
+						}
+					}
+					else if (Context.RELOAD_EVENT.equals(event.getType())) {
+						if (lifecycle instanceof StandardContext) {
+							StandardContext context = (StandardContext)lifecycle;
+							if (context.getPrivileged()) {
+								context.getServletContext().setAttribute(Globals.MBEAN_REGISTRY_ATTR, MBeanUtils.createRegistry());
+								context.getServletContext().setAttribute(Globals.MBEAN_SERVER_ATTR, MBeanUtils.createServer());
+							}
+						}
+					}
+				}
+
+			4）为org.apache.catalina.Server以及里面的NamingResources、Service等object创建MBeans：（通过使用MBeanUtils）
+
+				protected void createMBeans(Server server) throws Exception {
+					// Create the MBean for the Server itself
+					MBeanUtils.createMBean(server);
+					if (server instanceof StandardServer) {
+						((StandardServer) server).addPropertyChangeListener(this);
+					}
+					// Create the MBeans for the global NamingResources (if any)
+					NamingResources resources = server.getGlobalNamingResources();
+					if (resources != null) {
+						createMBeans(resources);
+					}
+					// Create the MBeans for each child Service
+					Service services[] = server.findServices();
+					for (int i = 0; i < services.length; i++) {
+						// FIXME - Warp object hierarchy not currently supported
+						if (services[i].getContainer().getClass().getName().equals("org.apache.catalina.connector.warp.WarpEngine")) {
+							if (debug >= 1) {
+								log("Skipping MBean for Service " + services[i]);
+							}
+							continue;
+						}
+						createMBeans(services[i]);  --------------------------> 为Service创建MBean，并为里面的Engine、Connector创建MBeans。以下 5）详解
+					}
+				}
+
+
+			5）为org.apache.catalina.Service以及里面的Engines、Connectors等objects创建MBeans：（通过使用MBeanUtils）
+
+				protected void createMBeans(Service service) throws Exception {
+					// Create the MBean for the Service itself
+					MBeanUtils.createMBean(service);
+					if (service instanceof StandardService) {
+						((StandardService) service).addPropertyChangeListener(this);
+					}
+
+					// Create the MBeans for the corresponding Connectors
+					Connector connectors[] = service.findConnectors();
+					for (int j = 0; j < connectors.length; j++) {
+						createMBeans(connectors[j]);
+					}
+					// Create the MBean for the associated Engine and friends
+					Engine engine = (Engine) service.getContainer();
+					if (engine != null) {
+						createMBeans(engine);  --------------------------> 为Engine创建MBean，并为里面的hosts创建MBeans。以下 6）详解
+					}
+				}
+
+
+			6）为org.apache.catalina.Engine以及里面的Hosts等objects创建MBeans：（通过使用MBeanUtils）
+				protected void createMBeans(Engine engine) throws Exception {
+					// Create the MBean for the Engine itself
+					MBeanUtils.createMBean(engine);
+						...
+					Container hosts[] = engine.findChildren();
+					for (int j = 0; j < hosts.length; j++) {
+						createMBeans((Host) hosts[j]);  --------------------------> 为Host创建MBean，并为里面的contexts创建MBeans。以下 7）详解
+					}
+						...
+				}
+
+
+			7）为org.apache.catalina.Host以及里面的Contexts等objects创建MBeans：（通过使用MBeanUtils）
+				protected void createMBeans(Host host) throws Exception {
+						...
+					MBeanUtils.createMBean(host);
+						...
+					Container contexts[] = host.findChildren();
+					for (int k = 0; k < contexts.length; k++) {
+						createMBeans((Context) contexts[k]);  --------------------------> 为Context创建MBean。以下 8）详解
+					}
+						...
+				}
+
+			8）为org.apache.catalina.Context创建MBeans：（通过使用MBeanUtils）
+				protected void createMBeans(Context context) throws Exception {
+						...
+					MBeanUtils.createMBean(context);
+						...
+					context.addContainerListener(this);
+					if (context instanceof StandardContext) {
+						((StandardContext) context).addPropertyChangeListener(this);
+						((StandardContext) context).addLifecycleListener(this);
+					}
+					// If the context is privileged, give a reference to it
+					// in a servlet context attribute
+					if (context.getPrivileged()) {	----------------->  如果此特权属性为true，则此context可以访问到Registry & MBeanServer对象(表示它是Manager App，可访问Tomcat)
+						context.getServletContext().setAttribute(Globals.MBEAN_REGISTRY_ATTR, MBeanUtils.createRegistry());
+						context.getServletContext().setAttribute(Globals.MBEAN_SERVER_ATTR, MBeanUtils.createServer());
+					}
+						...
+				}
+
+
+		2.MBeanUtils.createRegistry()创建了一个Registry对象。
+
+
+		3.MBeanUtils.createServer()创建了整个Catalina使用的javax.management.MBeanServer对象
+
+
+	七、Catalina's MBeans的使用：以Tomcat JMX manager application为例，说明一个webapp如何使用Catalina里面的MBeans来管理Tomcat
+			这个Manager App可以列出Catalina中所有的ObjectName对象、当前运行的contexts对象，并可以对它们进行增删改等操作
+
+		1.实现一个Descriptor文件，并放在%CATALINA_HOME%/webapps路径下
+
+			<Context path="/myadmin" 
+				docBase="../server/webapps/myadmin"    -----------------> 此app的位置
+				debug="8" 
+				privileged="true"    -----------------> 这个一定为true
+				reloadable="true">
+			</Context>
+
+		2.实现一个HttpServlet来实现一个Manager App：
+			1）MyAdminServlet：
+				public class MyAdminServlet extends HttpServlet {
+					private Registry registry;
+					private MBeanServer mBeanServer;
+
+					public void init() throws ServletException {
+						registry = (Registry)getServletContext().getAttribute("org.apache.catalina.Registry");
+						mBeanServer = (MBeanServer) getServletContext().getAttribute("org.apache.catalina.MBeanServer");
+					}
+
+					public void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+						response.setContentType("text/html");
+
+						String action = request.getParameter("action");
+						if ("listAllManagedBeans".equals(action)) {
+							listAllManagedBeans(out);
+						}
+						else if ("listAllContexts".equals(action)) {
+							listAllContexts(out);
+						}
+						else if ("removeContext".equals(action)) {
+							String contextObjectName = request.getParameter("contextObjectName");
+							removeContext(contextObjectName, out);
+						}
+						else {
+							out.println("Invalid command");
+						}
+						out.println("</body></html>");
+					}
+				}
+
+			2）对应的web.xml：
+				<web-app>
+					<servlet>
+						<servlet-name>myAdmin</servlet-name>
+						<servlet-class>myadmin.MyAdminServlet</servlet-class>
+					</servlet>
+					<servlet-mapping>
+						<servlet-name>myAdmin</servlet-name>
+						<url-pattern>/myAdmin</url-pattern>
+					</servlet-mapping>
+				</web-app>
+
+			3）http://localhost:8080/myadmin/myAdmin?action=listAllMBeans
+
+
+
+
+	总结：1）一、二、三
+			不管是Standard MBean还是Model MBean，它们都是将被管理的object封装起来，将需要暴露的接口暴露在MBean上。然后将MBean挂载到MBeanServer上。这样，client只需要通过MBeanServer就可以实现对object的访问和管理。差别就是一个是server直接访问实现Standard MBean接口的object，另一个需要ModelMBeanInfo来判断哪些属性方法是object本来就可访问的（比如提供了set()&get()阿等等）
+
+		 2）三、四
+			model MBean不仅可以通过hard code构造ModelMBeanInfo的方式来创建MBean（默认RequiredModelMBean），也可以通过读取Descriptor生成ManagerBean，再进一步生成model MBean的方式来创建MBean（默认是BaseModelMBean）
+			
+		 3）五、六
+			在Server启动的时候，一旦收到lifecycle的START_EVENT事件，Tomcat使用MBeanUtil进行Server的MBean的创建，并层层创建Server以下的所有组件和对象（比如Service，Engine，Connector等等）。然后再创建一个Registry对象 & MBeanServer对象。
+
+		 4）七
+			构造一个Manager App Client（servlet），它只需要使用Tomcat在启动时创建并注册好的MBeanServer & MBeans，就可以轻松地管理Tomcat。
+
+
+
+
+
+
+
+
+
+
+
+
+
+一、Tomcat的启动过程：
+两条线索：一条就是启动所有的子container，一条就是配置当前container的各个组件，当配置失败后将前一条线索中启动的各个子container全部stop。
+
+根据code得到的启动过程：
+1.Catalina的启动过程：
+	Bootstrap::main()
+	{
+		bootstrap.init(); ---> 设置环境变量，并初始化Catalina的parentClassloader()
+		Catalina.load(); ---> 配置启动Catalina,初始化Server
+		Catalina.start(); ---> 启动server，挂载shutdownHook
+	}
+2.Server的启动过程：
+
+
+
+
+

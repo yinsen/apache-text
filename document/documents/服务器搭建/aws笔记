@@ -1,0 +1,202 @@
+AWS Account ID: 0412-4411-9553
+
+AMI ID: ami-0273d903（ubuntu11.04server精简版）
+AMI ID: ami-00b10501（ubuntu11.04server）
+
+AMI ID: ami-a0883ea1（我的AMI）
+Volume ID:  vol-8276daed
+Snapshot ID:  snap-7bd7c511
+
+
+日本ubuntu主机：
+Availability zone： ap-northeast-1a
+EC2 Instance: i-513ce051
+Volume ID:  vol-8276daed
+Address: 176.34.59.87
+
+**** 常用操作：
+ubuntu上传到server：
+scp -i ami-keypair-ubuntu11.04.pem /home/sen/Downloads/apache-maven-3.0.3-bin.tar.gz ubuntu@176.34.59.87:~/bin
+ubuntu从server上下载：
+scp -i ami-keypair-ubuntu11.04.pem ubuntu@176.34.59.87:~/workspace/mycloud/tomcat7.0.21/output/build/logs/localhost_access_log.2012-02-17.txt  ~/src/
+数据库帐号sen密码sen
+
+Centos上传：
+scp -i ami-keypair-ubuntu11.04.pem /media/新加卷/Server_ZY/sp01/DrillDownServer/bin/ddserver.cfg root@176.34.59.87:/home/dds/dds/bin/
+scp -i ami-keypair-ubuntu11.04.pem /media/新加卷/Server_ZY/sp01/Web\ Services/startServerUnix.xml root@176.34.59.87:/home/dds/OpenLS/
+
+ssh -i ami-keypair-ubuntu11.04.pem ubuntu@176.34.59.87
+ln -s yy zz(为yy生成一个zz的软连接)
+
+可以使用图形化ssh客户端：putty
+
+日本redhat主机：
+Availability zone： ap-northeast-1a
+EC2 Instance: i-47a90747
+
+
+Centos搭建步骤：
+安装操作系统，连通网络，设置操作习惯，安装各种应用软件并设置其环境变量，安装OpenLS
+1. 挂载yum安装cache：
+	1）verify /tmp is empty.
+	2）empty the contents of /var/cache/yum/base/packages. (Or consider just moving the contents while verifying the below procedure on your system.)
+	3）Then try bind mounting space from /home to /var/cache/yum/base/packages thusly:
+					mount --bind /home/yum /var/cache/yum/base/packages
+	4）Then add an entry at the bottom of your /etc/fstab like this: /home/yum /var/cache/yum/base/packages none,rw bind 0 0
+	5）Once the bind mounts are setup, running a df -h will show /var/cache/yum/base/packages to have boku space. Then run yum and verify everything is copasetic.
+
+
+1. 安装gcc编译器：yum -y install gcc automake autoconf libtool make
+
+2. 安装git：(已经可以yum install git了)
+		首先安装Git依赖的一些包.
+		yum install zlib-devel
+		yum install openssl-devel
+		yum install perl
+		yum install cpio
+		yum install expat-devel
+		yum install gettext-devel
+		yum install tcl-devel tk-devel（好像是用于gitk）
+
+		接下来,如果你已经安装过Curl了,那么跳过这一步,没有的话,就装一下.（可以yum安装）
+		wget http://curl.haxx.se/download/curl-7.29.0.tar.gz
+		tar xzvf curl-7.29.0.tar.gz
+		cd curl-7.29.0
+		./configure
+		make
+		make install
+
+		确定一下ld.so.conf文件里有/usr/local/lib,这个是为git-http-push准备的.
+		vi /etc/ld.so.conf
+		#插入下面的代码
+		/usr/local/lib
+		保存文件,接着运行:
+		/sbin/ldconfig
+
+		最后,我们下载Git并安装它
+		wget http://www.codemonkey.org.uk/projects/git-snapshots/git/git-latest.tar.gz
+		tar xzvf git-latest.tar.gz
+		cd git-{date}（这里的{date}指的是版本的时间，比如我这里就是2010-7-21，好新阿）
+		autoconf（如果终端提示no command的话就先yum install autoconf,千万不要以为文件夹中有makefile就好直接make了，不然会出错的）
+		./configure --with-curl=/usr/local
+		make
+		make install
+		为git增加中文支持：(git status)git config --global core.quotepath false
+					    git config --global i18n.logOutputEncoding gbk
+					    git config --global i18n.commitEncoding gbk
+
+
+3. 配置环境变量和JAVA环境搭建，安装jdk以及ant等工具
+
+	export JAVA_HOME=/usr/java/jdk1.6.0_06
+	export PATH=.:$JAVA_HOME/bin:$PATH
+	export CLASSPATH=.:$JAVA_HOME/lib/dt.jar:JAVA_HOME/lib/tools.jar:$CLASSPATH
+	# by lake##/usr/local/dds_4.3.3/Web\ Services/server/Tomcat\ 5.0/bin/startup.sh
+	# by lake##cd /usr/local/dds_4.3.3/DrillDownServer/bin
+	# by lake##nohup ./ddserver -cfg ddserver.cfg &
+	export LD_LIBRARY_PATH=/dds/dds/lib:$LD_LIBRARY_PATH
+	export ANT_HOME=/usr/local/apache-ant-1.7.1
+	export PATH=$ANT_HOME/bin:$PATH
+
+4. 上载dds & OpenLS
+
+5. 将/etc/init.d/openls上传，此文件用于启动Webservice的所有三个组件
+6. 上传可用虚拟机版本，并alternative java虚拟机
+7. 为/etc/hosts添加一行：127.0.0.1   ys-centos
+8. 安装mysql
+
+
+
+
+一、EC2
+
+1.生命周期：launch，start，stop，terminate
+
+2.区域：Availability zone
+
+虚拟机
+　　EC2使用Xen虚拟化技术。每个虚拟机，又称作实例，能够运行小、大、极大三种能力的虚拟私有服务器。Amazon利用EC2 Compute Units去分配硬件资源。EC2系统提供以下的虚拟机实例类型
+小型实例
+　　默认配置了1.7 GB的存储器，一个虚拟核心上运行一个EC2 Compute Unit,160GB的硬盘空间, 32位平台
+大型实例
+　　默认配置了7.5GB的存储器，两个虚拟核心上各运行两个EC2 Compute Units,850GB的硬盘空间, 64位平台
+极大实例
+　　默认配置了15GB的存储器，四个虚拟核心上各运行两个EC2 Compute Units,1690GB的硬盘空间, 64位平台
+操作系统
+自动配置
+　　Amazon EC2自动配置容量的功能允许用户自动调整Amazon EC2的容量。假如用户的流量达到尖峰，自动配置功能可以自动增加更多的容量至虚拟主机上以维持性能。
+
+
+二、EC2 更改硬盘大小
+		1. 增大硬盘：
+				1）关闭服务器, Detach硬盘
+				2）为硬盘创建Snapshot。
+				3）从Snapshot建立一个新的硬盘，重新Attach到/dev/sda，此时可以设定大小；
+				
+				1）从Volumes中进去，创建一个EBS，可绑定到之前的snapshot，可再设定大小，再Attach到instance。
+
+		2. 文件系统实际扩容：
+				经过第一步以后，硬盘变为/dev/sda1分区再加上新增的未分区部分；接下来就是将未分区部分放入到sda1：
+				1)fdisk /dev/sda 显示sda硬盘中已分区和未分区的硬盘情况，用'n'命令将所有未分区硬盘生成一个新的分区；
+				
+				接下来，我们就要使用LVM来管理磁盘分区了：
+				LVM是逻辑盘卷管理（LogicalVolumeManager）的简称，它是Linux环境下对磁盘分区进行管理的一种机制
+				2)pvcreate /dev/sda2，将物理设备/dev/sda2转换成物理卷；然后pvscan 查看；
+				3）vgdisplay 查看当前物理卷组；
+				
+		3. 将某新增分区挂载到一个需要扩容的指定路径。如将一个20G的分区/dev/sdg1挂载到/home/dds:
+				1）先创建一个空的/home/dds2文件夹并挂载到/dev/sdg1
+				2）将/home/dds中所有的文件cp到/home/dds2
+				3）删除/home/dds，并mv /home/dds2 /home/dds；
+
+		主要命令有：
+		df -h  -------> 显示文件系统分区信息
+		fdisk -l ------> 显示所有分区信息
+
+
+三、EBS
+
+1.就相当于硬盘，默认EC2 terminate时它也被delete。也可以在启动EC2时设置DeleteOnTermination为false来避免EBS被删除
+
+2.每个EBS同时只能挂于一个EC2，一个EC2可以同时拥有多个EBS。
+
+3.EBS-backed AMIs是将AMI存储于一个EBS。可以从其启动，所有的启动数据都会保存在里面；还有用于存储非boot数据的EBS；
+
+4.所有在Instance launch时创建的volumes它的DeleteOnTermination默认为true；所有在Instance launch后时attach的volumes它的DeleteOnTermination默认为false；重新detach and then reattach之后的volumes它的DeleteOnTermination默认为false；
+
+
+三、S3
+
+1.就相当于网盘，可以用于EBS等所有数据的备份，也可以用它的某个snapshot直接恢复成EBS
+
+
+四、两种AMI：
+
+	1.1）store-backed AMIs：AMI将其root device存在S3上面，启动时，拷贝一个作为当前Instanse的root device用来boot系统；只能launch和terminate.不能start&stop；启动时它要拷贝所有的数据，所以速度要慢点；
+	  2）EBS-backed AMIs：AMI将其root device存在EBS上面，启动时，从相关的snapshot创建一个EBS volume作为当前Instanse的root device；可以launch和terminate，也可以start&stop；启动时只要拷贝boot相关的snapshot数据就可以了，所以要快点；
+
+
+	2.
+
+五、Elastic IP：即静态IP，但这里的IP是跟账户绑定的，它可以随意分配给账户里的任意一个Instance；
+		1. IP 绑定Instance不收钱，绑定了$0.01每小时
+		2. 域名到IP的remap每月有100次免费，之后$0.1每次。
+
+
+
+
+
+
+CentOS5.6启动步骤
+1.启动主机，挂载ip
+2.mount /dev/sdf1 /mnt/mysql_data/
+	mount /dev/sdg1 /home/dds/
+	
+3.service mysqld start
+ 
+4. df -h 与 netstat -ntpl查看
+
+5. ./catalina.sh jpda start
+
+
+

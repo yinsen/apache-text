@@ -1,0 +1,18 @@
+cookies与session:
+这两者都是用来保存跟某个http连接（即某个socket连接）相关的数据的，比如说  连接id（JSESSIONID），用户名密码，临时配置数据等等。这样可以将无状态的http协议转换成有状态的协议。
+其中客户端用cookie对象保存，服务器端用session对象保存
+
+1.cookie就是保存各个不同http请求之间的共享数据。
+	1）永久cookie保存在硬盘，临时cookie保存在内存 ---> cookie.setMaxAge(-100);  // 将cookie设为临时Cookie,正数为永久cookie的保存秒数
+	2）永久cookie在多个socket连接间共享，临时cookie只属于某个socket连接的不同请求间共享；
+	3）cookie请求头为kvp形式，如：  Cookie:key1=value1;key2=value2
+
+2.session对象
+
+3.cookie和session对象的建立过程：
+	1）连接建立以后，client第一次发送请求到server，此请求中Cookie请求头字段中有一个JSESSIONID的key:value，Tomcat将其value取出，然后在session map中查找value对应的	 		session；      因为这是第一次发送请求，所以session map中没有与之对应的session。此时Tomcat用getSession()创建一个HttpSession，并保存在session map中。
+	
+	2）server发送第一次应答给client，此时应答中有一个Set-Cookie应答头字段，并将client发送过来的key:value放于此字段中返回给client。此时client就会生成一个临时cookie，并将JSESSIONID的key:value保存在此cookie中。
+	3）client第二次用此连接发送请求，此时同样在Cookie请求头字段中有一个JSESSIONID的key:value。Tomcat此时就能找到第一次创建的HttpSession。并根据此session与此连接通话。
+
+		** 如果JSESSIONID的key:value保存在client的cookie文件中，则server跟此client上所有的连接都使用此session id **

@@ -1,0 +1,19 @@
+
+Server一般分为两层：前端web服务器 以及 后端应用服务器。
+如果只是静态网页请求，则可以只需要前端web服务器。
+前端服务器与后端服务器可以搭配成分布式服务器集群。
+
+前端webserver一般有apache, Nginx, lighttpd开源产品，以及LiteSpeed、Zeus商业产品，还有windows上的IIS
+后端服务器有FastCGI，基于java的Tomcat，基于ruby的Mongrel等
+
+其中，lighttpd好像对FastCGI的支持最好，所以它们搭配比较流行
+
+
+第一层（api层）：socket, epoll
+
+第二层（模型层）：Proactor，Reactor等，对应的实现有IOCP，
+			Proactor是封装异步IO，Reactor封装同步IO
+	
+第三层：apr，JIO，NIO
+
+第四层：lighttpd、apache等，如apache就有部分实现是基于apr的实现

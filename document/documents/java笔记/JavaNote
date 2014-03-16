@@ -1,0 +1,232 @@
+第一章、开发环境：
+	1.Eclipse:
+	1)几个版本：分别包含了不同的开发包及其链接环境
+		Java版：J2SE；    经典版本：J2SE+PLUGIN；   J2EE：JAVA版本+JPA+JSF+xml等；    c，c++版本；     linux c，c++版本；    plugin版本等
+
+
+	2.JRE：Java运行时环境，包括JavaRuntimeEnvironment和JavaPlug-in
+		1）JavaRuntimeEnvironment：包括Java虚拟机、Java平台核心类和支持文件
+		2）JavaPlug-in：JavaPlug-in软件允许JavaApplet和JavaBeans组件在使用Sun的JavaRuntimeEnvironment(JRE)的浏览器中运行，而不是在使用缺省的Java运行环境的浏览器中运行
+
+		操作系统寻找JRE的方式如下：
+		1）先找当前目录下有没有JRE
+		2）再找父目录下有没有JRE
+		3）接着在PATH路径中找JRE 
+
+		JRE自带基础类库主要是JRE\lib\rt.jar这个文件，包括了Java2平台标准版的所有类库。OS通过PATH来找JRE，确定基础类库rt.jar的位置，JRE的ClassLoader通过CLASSPATH找其它类库
+		1）PATH是java可执行程序的查找路径，由OS使用；
+		2）JRE_HOME 即JAVA_HOME/jre是核心类库的路径；
+		3）CLASSPATH 即JAVA_HOME/lib是私有类库的路径；
+
+	3.对于开发环境主要就这么几块：编辑、编译、链接（build，打包）、调试、部署；
+
+	4.打包详解：jar文件里有一个META-INF文件夹，里面有一个MANIFEST.MF 文件，这是它与zip文件的唯一区别
+		1）打包jar：就是调用jar命令对class文件，资源文件，jsp文件等进行压缩到一个jar文件中。也可以用各种jar选项对jar文件进行增删改查等操作。
+			eg： jar cvf classes.jar Foo.class Bar.class -------- 就是将Foo.class和Bar.class打包成classes.jar文件。
+				jar cvfm classes.jar mymanifest -C foo/ -------就是根据mymanifest文件对classes.jar进行更新，并放到foo/目录下。
+
+		2）打包war：jar文件中有一个META-INF文件夹，war文件中有一个WEB-INF文件夹。打包war时，进入app的文件夹，比如mytrace/下，运行jar cvf mytrace.war *，就将所有的文件打包成war了。
+
+		3）用ant打包：在build.xml中，加入
+				<target name="jar">
+					<jar destfile="${app_home}/hello.jar">
+						<fileset dir="${dest}" includes="**"/>
+						<!--fileset dir="${dest}" includes="**/action.properties"/-->
+					</jar>
+				</target>
+
+			或：
+				<war warfile="hello.war" webxml="./WEB-INF/web.xml">
+					<fileset dir="html"/>
+					<lib dir="lib/">
+						<exclude name="oracle*.jar"/>
+					</lib>
+					<classes dir="build/servlets">
+						<include name="**/*.class"/>
+					</classes>
+				</war> 
+
+		4）执行jar文件：jar文件分为可执行的和不可执行的。可执行的jar文件中必须要有一个带main()的类，在manifest中会指明：Main-Class:*.*.*
+				a）jar文件包最典型的用法就是用它来制作可执行的发布程序。当执行一个jar程序时，必须指定所有用到的包的根目录：或者是CLASSPATH或者是用参数临时指定的。
+				b）要想实现双击执行，原则上要为jar文件制作.bat或.sh批处理文件；
+				c）其实，在安装 JRE (Java Runtime Environment) 的时候，安装文件会将 .jar 文件映射给 javaw.exe（windows平台） 打开。那么，对于一个可执行的 JAR 文件包，用户只需要双击它就可以运行程序了；
+
+		 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		 //////		.java = .c																									///////
+		 //////		.class = .o																									///////
+		 //////		.jar = .elf + .lib + .so																					///////
+		 //////		点击执行可执行的jar文件时，将整个jar所包含的class文件，以及它所import的包中的所有class文件都解压出来，load进内存，放入代码区。 ///////
+		 //////		从代码区再调入语句到栈区执行，如有对象生成，则在堆区分配内存。 															///////
+		 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+第二章、语言特性：
+
+
+	c程序在内存中共有五大块：（常量区包含在数据区里面）
+						 代码区、
+						 数据区（即全局数据区，分为初始化数据区和未初始化数据区，存储全局变量和静态变量，在编译时分配）、
+						 常量区（存储常量，此块内存不允许修改）、
+						 堆区（动态分配的内存，用链表管理）、
+						 栈区（存储局部变量、参数、返回值、进程切换时保存现场中的寄存器值等）；
+	java程序在内存中的分布：（主要是堆栈区的不同）
+						 代码区、
+						 数据区（存储静态变量，在编译时分配）、
+						 常量区（存储常量，此块内存不允许修改）、-------- 因在java中，都是存储的对象的引用，所以就像c++中的常量指针，引用本身不能改，但其内部成员变量可以改(即常量区对象的成员变量指向的对象有可能不在常量区)
+						 堆区（存储所有的对象数据。主要用于记录程序的数据结构）、
+						 栈区（存所有8种基本类型以及对象引用。主要用于记录程序的运行逻辑）；
+	*** 正是因为堆区和栈区的分离，才使得jvm的垃圾回收机制成为可能。Java中,栈的大小通过-Xss来设置，当出现java.lang.StackOverflowError时，需要调大栈 ***
+		一个空object： Object ob = new Object(); ob的大小为8Byte，如果有别的成员变量，则它的大小为成员变量 + 8Byte ！！ 
+
+
+	
+	c的静态变量、c++的静态变量、java的静态变量，都是存储在全局数据区，拥有源程序生命周期，在程序load时就必须初始化（包括从全局数据区中分配内存，所以c++的静态变量必须在cpp文件的上面初始化静态变量）
+	为什么java的常量经常用static final而不是final.是因为常量的初始化是在一个对象建立的时候执行，如果一个常量的初始化不是用一个固定的值，而是一个函数或变量。那么包含这个常量的每个对象的常量值都有可能不同；为了让常量的值在每个对象中都相同，就干脆用static final将它放入全局数据区，这样每个对象访问的其实是同一块内存。它会在程序load时被初始化
+
+
+	1. 不支持宏，结构体，联合体，全局变量用public static表示。常量用final表示。
+	2. java是全面支持多态特性，不像c++只有virtual函数才支持多态。
+
+	3.abstract与interface：
+		abstract可以用 = 赋值，如 abstract a = new b()，其中b是a的具体子类。但不能直接用new生成一个实例。不能有构造函数、静态方法。
+		interface可以实现多继承，只能有static final成员变量。instanceof也可以用来确定对象的类有没有实现某接口。
+
+	4. 整数常量默认为int，小数常量默认为double。可以这样赋值：Float ff = new Float(); float f1 = ff;
+		1）另外，Java 语言有八种原语数据类型，但仅使用了其中的六种。另外两种：a）float在Java中极为罕见，更常用的是 double。b）比 float 更不常见的是 short，一般用int。
+		2）在 C++ 中，同一个类的对象无法看到彼此的私有成员变量。他们必须使用 accessor 方法。在 Java 语言中，私有属性的范围是类而非对象。类型同为 Foo 的两个对象可直接访问对方的私有字段。
+		3）错误处理是 Java 编程中最令人困惑的问题之一，也是真正地将语言风格大师与平凡开发者区分开来的一道门槛。实际上，仅仅错误处理就可以自成一篇文章。简而言之，合理使用异常，切勿返回错误代码。
+
+	5. 重载： c++中重载函数必须要有同样的返回值（即只要函数名相同，则返回值类型必须相同）；java中可以不同，但返回值不同不代表是重载，必须要有参数个数类型不同
+	   重写：java中重写的函数必须在函数名、返回值、参数个数和类型上都与父类相同。否则就是重载。  ？？？ 那只有返回值不同的重写算是什么？？？
+
+		class Test{
+		 public void print(String some){
+		  System.out.println("String version print");
+		 } 
+		 public void print(Object some){
+		  System.out.println("Object version print"); 
+		 }
+		}
+		test.print(null); 
+
+		输出的结果是String version print。上面的程序输出了String version print是遵循了方法重载中准确性的原则，null是作为一个很特别的参数传给了方法print()，因为你可以认为null是String，也可以认为null是Object。但是从层次上看Object处在更上层，String是从Object继承过来的，调用print(String some)将更准确。
+
+		 如果在TestOverLoad类中再添加一个方法如下所示，这样会如何呢？
+
+		class Test{
+		 public void print(String some){
+		  System.out.println("String version print");
+		 } 
+		 public void print(Object some){
+		  System.out.println("Object version print"); 
+		 }
+		 public void print(StringBuffer some){
+		  System.out.println("StringBuffer version print"); 
+		 }
+		}
+		test.print(null);
+
+		答案是不能通过编译，为什么呢？由于StringBuffer和String并没有继承上的关系，因此编译器感觉StringBuffer和String作为参数的方法都很准确，它就不知道到时候会运行哪个方法了，因此会出现编译错误，这是方法重载中唯一性的原则。如果我们把参数null修改为"hello world"，那么就可以通过编译并运行输出String version print了。
+
+
+	6.java中方法重写的一个重要而且容易被忽略的规则是重写的方法的访问权限不能比被重写的方法的访问权限低！（即不能由public变成private等）；重写的另一个规则是重写的方法不能比被重写的方法抛弃(throws)更多种类的异常，其抛弃的异常只能少，或者是其子类，不能以抛弃异常的个数来判断种类，而应该是异常类层次结果上的种类。
+
+
+
+
+	7.java中的final如果用来修饰一个对象，则它不能够再指向另一个对象，也不能够更改它所指向的对象的值。就相当于c++中指针常量和常量指针的综合体。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	三、多线程编程：参考链接：http://lavasoft.blog.51cto.com/62575/27069/
+
+
+
+
+
+
+
+
+	四、Inner Class学习：
+		1.内部类在outer类中用起来跟普通类一样，就相当于import了一个类一样；
+		2.内部类在outer以外的类中用到时必须要以outer.inner的类型出现。即outer.inner才是它的类全名
+		3.内部类保留了一个指向outer类的引用，所以它就相当于outer类的一个友元类一样，可以直接访问outer类的私有成员；
+		4.只有在outer类中才能直接创建inner类的对象，所以在外面要创建一个inner类对象，必须先找到outer对象的引用；
+			1）方式一：
+			如：	Parcel2.Contents c = q.contents();
+				public class Parcel2 {
+					class Contents {
+						private int i = 11;
+						public int value() { return i; }
+					}
+					public Contents contents() {
+						return new Contents();
+					}
+				}
+			2）方式二：还有一种方法就是使用outer.new方式
+			如：
+				public class DotNew {
+					public class Inner {}
+					public static void main(String[] args) {
+						DotNew dn = new DotNew();
+						DotNew.Inner dni = dn.new Inner();
+					}
+				}
+			
+			要创建一个inner类对象，必须先创建一个outer类的对象，因为inner类对象是连接在outer类对象上的，inner对象不能独立存在。
+
+		5.在inner类中访问outer类，可用outer.this的方式引用；
+
+
+		6.inner类的重要功能：实现对类访问的限制。
+			class Parcel4 {
+				private class PContents implements Contents { ------------- 在这里，PContents只能由Parcel4访问
+					private int i = 11;
+					public int value() { return i; }
+				}
+				protected class PDestination implements Destination { ------------- 在这里，PDestination只能由Parcel4及其子类访问
+					private String label;
+					private PDestination(String whereTo) {
+					label = whereTo;
+					}
+					public String readLabel() { return label; }
+				}
+				public Destination destination(String s) {
+					return new PDestination(s);
+				}
+				public Contents contents() {
+					return new PContents();
+				}
+			}
+			public class TestParcel {
+				public static void main(String[] args) {
+					Parcel4 p = new Parcel4();
+					Contents c = p.contents();  --------  client类只能访问Contents接口，而不能生成PContents对象，防止类型依赖，促进面向接口编程
+					Destination d = p.destination("Tasmania");
+					// Illegal -- can’t access private class:
+					//! Parcel4.PContents pc = p.new PContents();
+				}
+			}
+
+
+
+
+
+

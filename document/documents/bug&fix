@@ -1,0 +1,5 @@
+Apache启动时，DBD 连接 mysql失败。
+	原因：httpd.conf中的DBParam参数中，password应该改成pass
+
+Apache启动后，无法访问htdoc文件夹，浏览器显示403错误：
+	原因：apache启动后的用户需要有读htdocs文件夹的权限，执行chmod 755 htdocs

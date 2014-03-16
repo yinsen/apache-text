@@ -1,0 +1,9 @@
+此gateway就是运行于tomcat内的一个线程
+主要三个文件：
+1. GatewayBootstrapServlet：在它的init中启动gateway线程，此线程即socket监听线程，并配置此线程：
+																														1）设置DGCP协议解析器OpenlsMessageHandler
+																														2）启动Dispatcher将解析过来的请求分发给webservice
+																														3）利用serverSocketChannel启动监听socket监听来自终端的连接
+
+
+socket采用java.nio模型，DGCP解析成xml请求后不需要再往网络上发，而是直接往本地发DDS请求。因为gateway与webservice都在同一个tomcat中，webservice能做的gateway都能直接做

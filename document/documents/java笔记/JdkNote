@@ -1,0 +1,297 @@
+
+
+第一章、java.lang包：六大部分：接口，类，枚举类，异常，错误，注解符号类型
+java.lang.Object
+wait()
+暂停当前线程，并把线程放到对象的等候线程集中，直到当前线程被唤醒继续执行。
+wait(timeout)
+暂停当前线程，并把线程放到对象的等候线程集中，直到当前线程被唤醒或者经过了规定的超时时间而继续执行。
+java.lang.Cloneable
+可克隆接口。实现了该接口的类具有克隆的能力。可以通过Object.clone()方法将类的实例对象的域（field）逐个复制到同一个类的另外一个实例中。如果使用Object.clone()方法克隆没有实现该接口的类的实例对象，将会触发 CloneNotSupportedException异常。
+java.lang.Comparable
+可比较接口。实现了该接口的类的两个实例对象之间可以进行比较。比较结果负数（-1）、0、正数（1）分别代表比较对象与被比较对象之间的关系分别是小于、等于、大于。可对实现了该接口的类的多个实例对象进行排序。
+java.lang.Iterable
+可迭代接口。实现了该接口的类一般作为容器，且具有提供依次访问被包容对象功能的能力。
+java.lang.Readable
+可读取接口。客户对象可以从实现了该接口的类的实例对象中读取字符。
+java.lang.Runable
+可运行接口。实现了该接口的类的实例对象将在一个单独的线程（thread）中被运行。没有扩展Thread的类可以通过实现该接口，开发出多线程服务的能力。
+java.lang.Thread.UncaughtExceptionHandler
+线程未捕获异常控制器接口。在线程执行过程中引发了异常而没有捕获时， 实现了该接口的类可以作为控制器处理该状况。
+
+
+
+java.lang.Package
+该类的对象包含了已封装的Java包所遵循的规范和实现的版本信息，这些信息主要来源于跟类文件一起部署的MANIFEST文件。类的ClassLoader负责获得这些信息。规范的版本号符合“\d+(\.\d+)*”的模式。
+java.lang.Class
+该类的实例对象表达Java应用中正在运行的类或者接口。该类没有公共的构造方法，所以不能由Java虚拟机自动实例化，而是由ClassLoader实例化。
+java.lang.ClassLoader
+该类是Java类加载器，负责根据制定的二进制名称加载相应的类。在Java语言规范中规定，类、接口或原始数据类型有三种命名，他们分别是许可名（fully qualified name）、规范名（canonical name）、二进制名（binary name）。不同的类加载器根据类的二进制名从不同的源中读取二进制的类“*.class”信息，并生成Class对象。每个类中都有对其加载器的引用。
+		许可名: org.javaplus.jdkoverview.SubClass.InnerClass   ----------   其中SubClass是OuterClass的子类
+		规范名: org.javaplus.jdkoverview.OuterClass.InnerClass 
+		二进制名: org.javaplus.jdkoverview.OuterClass$InnerClass
+java.lang.Compiler
+该类提供Java到本机代码的支持，及相关服务。该类只是JIT编译器（Java Just-in-Time Compiler）的一个占位符而已。如果JVM（Java Virtual Machine ）第一次启动时未成功加载JIT编译器，则本类不做任何工作。
+
+
+
+java.lang.System
+提供访问系统元素的系统类。该类提供了对标准输入/输出/错误、系统环境变量、系统属性的访问方法，以及其他有用的工具方法。
+java.lang.StackTraceElement
+堆栈跟踪元素。一系列该类的实例描述了方法调用堆栈的信息。该类的出现使对方法调用堆栈提供个性化处理成为可能。
+
+
+
+java.lang.Process
+执行ProcessBuilder.start()和Runtime.exec()方法可以得到该类的子类的实例。这些实例对象可以被用于获取进程信息乃至控制进程。该类提供了从进程中获得输入，向进程中输出，等待进程完成，检查进程结束状态，以及杀死进程等方法。与进程的交互通过该进程的标准IO方法（stdin, stdout, stderr）来完成。
+java.lang.ProcessBuilderclassname
+创建一个操作系统进程，用以执行外部命令。并允许为命令的执行提供参数，以及设置系统环境变量。
+
+
+
+java.lang.Runtime
+每个Java应用都有且仅有一个该类的实例与之对应。通过该类的实例，Ｊａｖａ应用可以与虚拟机运行环境交互。
+java.lang.RuntimePermission
+运行时权限。用以限定运行时是否被允许执行某些动作。
+
+
+
+java.lang.Thread
+线程。一个程序可以有多个并发的执行线程。线程分为用户线程和后台线程。Java虚拟机在只有后台线程在运行时退出。
+java.lang.ThreadGroup
+一组线程的集合。线程组可以嵌套。
+java.lang.ThreadLocal
+线程局部变量。这些变量可以在不同的线程中独立初始化及赋值。线程局部变量通常是类中与线程状态相关联的私有静态属性。譬如：事务Id等。
+java.lang.InheritableThreadLocal
+该类扩展了java.lang.ThreadLocal类。为子线程（Thread）提供创建时从其父线程获得可继承线程局部变量（inheritable thread-local variables ）的能力。子线程可以任意处理从父线程继承来的局部变量，而不影响父线程。使用可继承线程局部变量可以提高线程局部变量的维护效率。
+java.lang.Thread.State
+线程有以下几种状态：NEW（已创建但尚未开始执行）、RUNNABLE（正在Java虚拟机中执行）、BLOCKED（阻塞中：正等待获得监控锁）、WAITING（等待：无条件等候其他线程执行完毕，直到接收到唤醒通知）、 TIMED_WAITING（限时等待：等候其他线程执行完毕，直到接收到唤醒通知或等待时间超过了时限）、TERMINATED（终止：线程已经退出）。
+
+NEW
+　　当使用new一个新线程时，如new Thread(r)，但还没有执行start(),线程还没有开始运行，这时线程的状态就是NEW。
+
+RUNNABLE
+　　当start()方法被调用时，线程就进入RUNNABLE状态。此时的线程可能正在运行，也可能没有运行
+
+BLOCKED
+　　受阻塞并且正在等待监视器锁的某一线程的线程状态。比如说在等待一个IO操作的返回（到操作结束）；等待某个锁的释放（到其它线程将锁释放）；等待一定的触发条件（到条件得到满足）；被suspend()方法挂起（到调用了resume()方法）；执行了sleep()方法（到睡眠时间结束）；
+
+WAITING
+　　某一等待线程的线程状态。
+　　线程因为调用了Object.wait()或Thread.join()而未运行，就会进入WAITING状态。
+
+TIMED_WAITING
+　　具有指定等待时间的某一等待线程的线程状态。
+　　线程因为调用了Thread.sleep()，或者加上超时值来调用Object.wait()或Thread.join()而未运行，则会进入TIMED_WAITING状态。
+
+TERMINATED
+　　已终止线程的线程状态。
+　　线程已运行完毕。它的run()方法已正常结束或通过抛出异常而结束。
+　　线程的终止
+　　run()方法结束，线程就结束。
+
+
+
+java.lang.Throwable
+可抛出对象接口。Java语言中所有的异常和错误都实现了该接口。只有实现了该接口的类才可以被Java虚拟机抛出，或者说才可以用于throw语句,或者做为catch语句的参数。
+
+
+
+java.lang.CharSequence
+CharSequence是指可阅读的字符序列。该接口为各种类型的只读字符序列提供了统一的方法。
+java.lang.String
+字符串类。唯一的对象基本数据类型。无需多言。该类的format方法提供了基于正则表达式的强大格式转换功能。字符串一旦被创建将不能再被改变。
+java.lang.StringBuffer
+维护可变字符序列的字符串缓冲器。该类的处理方法线程安全。该类被用于处理比较不稳定的字符序列（经常需要变化的字符序列。对字符序列常见的变化包括在某个特定索引位置插入新的字符序列）。
+java.lang.StringBuilder
+提供兼容于java.lang.StringBuffer的功能。不同点在于该类不保证线程安全。
+
+
+
+java.lang.SecurityManager
+安全管理器。为应用提供验证在特定安全上下文中是否具有某种权限的服务
+
+
+
+java.lang.Number
+该类是java.math.BigDecimal、java.math.BigInteger、java.lang.Byte、 java.lang.Double、java.lang.Float、java.lang.Integer、java.lang.Long、 java.lang.Short等类的父类。扩展该类的子类必须实现将自己所代表的数字转换为byte、double、float、int、long、 short等原始类型数值的方法。这些转换方法可能会对数值采取四舍五入或截断的策略，从而损失数值的正确性。
+java.lang.Math
+该类提供了基本的数学运算方法。譬如：乘方、开方、指数、角度运算等。为了提高性能，该类的方法大多损失了精确度。更精确的结果可以通过java.lang.StrictMath的相应方法得到。
+java.lang.StrictMath
+精确数学运算类。该类提供了基本数学运算方法的精确实现。这些方法的实现算法来源于众所周知的网络库??"Freely Distributable Math Library"。
+
+
+
+注解符号类型
+java.lang.Deprecated
+被废弃。用于指示出于安全或者有了更好的替代方案等原因而不鼓励再使用的程序元素。当使用或者在未废弃的代码中覆盖被声明为Deprecated的程序元素时，编译器会发出警告。
+java.lang.Override
+覆盖。用于指示某个类的方法被声明为要求覆盖其父类的同一方法的情况。如果一个方法被声明覆盖类型，而没有真正覆盖其父类的同一方法，那么编译器必须产生一个错误信息。
+java.lang.SuppressWarnings
+消除警告。用于指示在被注解的程序元素中消除某些特定的命名警告。该注解大多用于深深地被嵌套的元素上。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+第二章、java.util包
+
+
+一、jdk中各种容器的学习：主要就是掌握 三个List，两个Map，一个Queue 这六个数据结构类
+		Collection ---- Collection是所有集合的父接口，它支持迭代操作，有一个空构造函数和一个拷贝构造函数。可以有null元素。有两个子接口：Set 和 List：
+		|—Queue ----- 避免Collection的add()和remove()，而使用offer()&poll()。通过返回值可判断成功与否，如果要使用前端而不移出该元素，使用element()或peek()。
+		├List  ------ List是一个有序的，元素可重复的集合。它可以向数组一样用下标访问。而且，List是一个双向链表 
+		│├LinkedList  ----- 随机存储的线性链表。
+		│├ArrayList ----- (数组链表)顺序存储，有利于查找，不利于插入；
+		│└Vector  ----- (容器链表)顺序存储，有利于查找，不利于插入；Vector使用了synchronized方法，所以性能上比ArrayList差点
+		│　└Stack  ----- 在Vector的基础上增加了Pop，Push，等方法。
+		└Set -----  不包含重复元素，最多有一个null元素。必须小心操作可变对象（Mutable Object）
+		
+		Map ----- 不能包含相同的key，每个key只能映射一个value。Map的内容可以被当作一组key集合，一组value集合，或者一组key-value映射
+		├Hashtable ----- 任何非空（non-null）的对象都可作为key或者value。 
+		├HashMap
+		└WeakHashMap 
+
+Hashtable类：
+　　1）Hashtable继承Map接口，实现一个key-value映射的哈希表。任何非空（non-null）的对象都可作为key或者value。
+　　2）在Hashtable中，value是真正要存储的数据，它是存在key的hashcode所对应的位置上。添加数据使用put(key, value)，取出数据使用get(key)，这两个基本操作的时间开销为常数。
+   3）Hashtable 通过initial capacity和load factor两个参数调整性能。通常缺省的load factor 0.75较好地实现了时间和空间的均衡。增大load factor可以节省空间但相应的查找时间将增大，这会影响像get和put这样的操作。
+
+　　4）由于作为key的对象将通过计算其散列函数来确定与之对应的value的位置，因此任何作为key的对象都必须实现hashCode和equals方法。hashCode和equals方法继承自根类Object，如果两个不同对象的hashCode相同，这种现象称为冲突，冲突会导致操作哈希表的时间开销增大，所以尽量定义好的hashCode()方法，能加快哈希表的操作。
+　　如果相同的对象有不同的hashCode，对哈希表的操作会出现意想不到的结果（期待的get方法返回null），要避免这种问题，只需要牢记一条：要同时复写equals方法和hashCode方法，而不要只写其中一个。
+　　5）Hashtable是同步的。 
+
+HashMap类：
+　　HashMap和Hashtable类似，不同之处在于HashMap是非同步的，并且允许null，即null value和null key。
+
+
+总结： 1）要快速查找还是快速增删，和 要单线程执行还是多线程并发 两方面来考虑使用哪个List；
+      2）尽量返回接口而非实际的类型，如返回List而非ArrayList
+      3）对于执行效率要求高的程序，建议使用一个简单的数组（Array）来代替Vector或ArrayList。
+
+
+	二、其它Util：Dictionary、Comparator、Enumeration、HashSet、Date&Calendar
+		
+		1.Dictionary是Hashtable的父类，专门用于处理hash表中的映射关系。给定一个Dictionary和一个key，就只能有一个value对应。
+		2.Comparator是一个用来进行复杂排序的类，它支持多种条件并存的排序。
+		3.Enumeration定义了从一个数据结构得到连续数据的手段。例如，nextElement()可以用来从含有多个元素的数据结构中得到下一个元素。由于Enumeration是一个接口，它的角色局限于为数据结构提供方法协议。
+
+		4.HashSet：即 链表数组
+			(1) 用HashSet就是为了提高查找效率。
+			(2) HashSet 的内部结构：它就是一个链表数组，每一个数组元素都是一个链表，我们称为散列单元 。
+			(3) hashCode：在Object中有一个hashCode方法来得到它的哈希值。基本上，每一个对象都有一个默认的hashCode，就是对象的内存地址。但也有一些对象不同，比如String对象，它的是对内容的计算结果：
+			(4) HashSet 如何add机制：根据hashcode来决定插入到哪个数组元素对应的链表中：
+			      假如我们有一个数据(hashcode76268)，而此时的HashSet有128个散列单元，那么这个数据将有可能插入到数组的第108个链表中 (76268%128=108)。但这只是有可能，如果在第108号链表中发现有一个老数据与新数据equals()=true的话，这个新数据将被视为已经加入，而不再重复丢入链表。 但HashSet的数组个数如何指定那?
+			    Java默认的散列单元大小全部都是2的幂，初始值为16（2的4次幂）。假如16条链表中的75%链接有数据的时候，则认为加载因子达到默认的 0.75。HahSet开始重新散列，也就是将原来的散列结构全部抛弃，重新开辟一个散列单元大小为32（2的5次幂）的散列结果，并重新计算各个数据的存储位置。以此类推下去.....
+			
+			(5)为什么HashSet查找效率提高了。
+			      知道了HashSet的add机制后，查找的道理一样。直接根据hashcode和数组大小计算除余后，就得到了所在数组的位置，然后再查找链表中是否有这个数据即可。
+			      查找的代价也就是在链表中，但是真正一条链表中的数据很少，有的甚至没有。几乎没有什么迭代的代价可言了。所以散列表的查找效率建立在每个链表中的数据要少 。
+			(6) hashCode方法必须与equals方法必须兼容：意思是尽量让不同的对象拥有不同的hashcode。
+			   为什么要这样，因为HashSet不允许相同元素(equals==ture)同时存在在结构中。假如employeeX(1111，“张三”)和 employee(1111,"李四")，而Employee.equals比较的是name。这样的话，employeeX和employeeY的 equals不相等。它们会根据相同的散列码1111加入到同一个散列单元所指向的列表中。这种情况多了，链表的数据将很庞大，散列冲突将非常严重，查找效率会大幅度的降低。
+			(7) 总结一下
+					a、HashMap与HashSet的区别是：一个是在key的hashcode处存储value，一个是在key的hashcode处存储key本身
+			    b、HashSet不能重复存储equals相同的数据 。原因就是equals相同，数据的散列码也就相同（hashCode必须和equals兼容）。大量相同的数据将存放在同一个散列单元所指向的链表中，造成严重的散列冲突，对查找效率是灾难性的。
+			    c、HashSet的存储是无序的 ，没有前后关系，他并不是线性结构的集合。
+
+
+
+		5.UUID：UUID是指在一台机器上生成的数字，它保证对在同一时空中的所有机器都是唯一的
+
+			UUID由以下几部分的组合：
+			　　（1）当前日期和时间，UUID的第一个部分与时间有关，如果你在生成一个UUID之后，过几秒又生成一个UUID，则第一个部分不同，其余相同。
+			　　（2）时钟序列。
+			　　（3）全局唯一的IEEE机器识别号，如果有网卡，从网卡MAC地址获得，没有网卡以其他方式获得。
+			UUID的唯一缺陷在于生成的结果串会比较长。关于UUID这个标准使用最普遍的是微软的 GUID(Globals Unique Identifiers)。在ColdFusion中可以用CreateUUID()函数很简单地生成UUID，其格式为：xxxxxxxx-xxxx- xxxx-xxxxxxxxxxxxxxxx(8-4-4-16)，其中每个 x 是 0-9 或 a-f 范围内的一个十六进制的数字。而标准的UUID格式为：xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxx (8-4-4-4-12)，
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+第三章、java.io包：
+
+1.BufferedReader:
+
+	1)mark&reset:这两个用于在Reader读过后再返回到之前读的某一个位置，这个位置由readAheadLimit参数决定。不过这未必是一种好的解决方案，因为，有时readAheadLimit很难确定，而且用这种方法的话，整个文件就必须一直放在内存中；所以一般直接再用另一个BufferedReader；具体参见FeedbackActivity.java
+
+
+
+
+
+
+
+
+
+
+JAAS学习：（参考百度百科：JAAS）
+		一、JAAS框架
+		JAAS认证被实现为可插入的方式，允许应用程序同底层的具体认证技术保持独立，新增或者更新认证方法并不需要更改应用程序本身。应用程序通过实例化LoginContext对象开始认证过程，引用配置文件中的具体认证方法，即LoginModule对象，来执行认证。
+		
+		二、JAAS使用：
+			主要为三个步骤：
+				1. 首先构造一个LoginContext对象：
+						LoginContext lc = new LoginContext("CountFiles",new TextCallbackHandler()); //参数1表示配置文件中的对应LoginModule；参数2通过回调传入user&psw。
+				2. 使用这个对象进行登录：
+						lc.login();	//返回的是一个subject。通过subject.getPrincipals()与subject.getPublicCredentials()获得用户信息和权限信息
+				3. 以认证用户的身份执行代码：
+						Object o = Subject.doAs(lc.getSubject(), new CountFilesAction()); //把用户作为doAs方法一个参数。
+
+		三、JAAS具体实现的核心类和接口：详细的描述请参考《JAAS Reference Guide》。 
+					JAAS相关的核心类和接口分为三类，公共、认证和授权。
+			　　
+					1. 公共类：Subject，Principal，Credential
+							Subject就是已经经过认证的个体，Principal（特征）就是Subject的某些属性，比如用户名，组ID，角色等
+
+					2. 认证类和接口：LoginContext，LoginModule，CallbackHandler，Callback
+							1）LoginModule：是具体的某个认证方法。它在配置文件中被确定。用于读取配置文件的类为com.sun.security.auth.login.ConfigFile，它实现了接口javax.security.auth.login.Configuration
+			
+					3. 授权类 ：Policy，AuthPermission，PrivateCredentialPermission
+							1）Policy就是用于对具体授权的描述，其具体语法和实现可参考《Default Policy Implementation and Policy File Syntax》
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
