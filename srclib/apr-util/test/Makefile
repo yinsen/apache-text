@@ -10,7 +10,7 @@ srcdir = .
 #   programs such as sockperf, that have to be invoked in a special sequence
 #   or with special parameters
 
-INCLUDES = -I/home/dds/workspace/httpd-2.2.25/srclib/apr-util/include -I/home/dds/workspace/httpd-2.2.25/srclib/apr-util/include/private  -I/usr/local/apr/include/apr-1  
+INCLUDES = -I/home/dds/workspace/httpd-2.2.25/srclib/apr-util/include -I/home/dds/workspace/httpd-2.2.25/srclib/apr-util/include/private -I/usr/include/mysql  -I/usr/local/apache2/include/apr-1  
 
 STDTEST_PORTABLE = dbd testall
 
@@ -29,7 +29,7 @@ CLEAN_TARGETS = manyfile.bin testfile.txt data/sqlite*.db
 
 # bring in rules.mk for standard functionality
 include /home/dds/workspace/httpd-2.2.25/srclib/apr-util/build/rules.mk
-APRUTIL_LIBS = -lexpat /usr/local/apr/lib/libapr-1.la -lrt -lcrypt -lpthread
+APRUTIL_LIBS = -lexpat /usr/local/apache2/lib/libapr-1.la -lrt -lcrypt -lpthread
 APRUTIL_LDFLAGS = $(ALL_LDFLAGS) -no-install 
 
 # link programs using -no-install to get real executables not
@@ -61,7 +61,7 @@ check: $(TESTALL_COMPONENTS) $(STDTEST_PORTABLE) $(STDTEST_NONPORTABLE)
 	progfailed=""; \
 	for prog in $(STDTEST_NONPORTABLE) $(STDTEST_PORTABLE); do \
 	        if test "$$prog" = 'dbd'; then \
-			for driver in none ; do \
+			for driver in none  mysql; do \
 				if test "$$driver" != 'none'; then \
 					LD_LIBRARY_PATH="`echo "../crypto/.libs:../dbm/.libs:../dbd/.libs:../ldap/.libs:$$LD_LIBRARY_PATH" | sed -e 's/::*$$//'`" \
 					./$$prog $$driver; \

@@ -10,9 +10,9 @@ APRUTIL_DOTTED_VERSION=1.5.2
 srcdir = .
 
 
-INCLUDES = -I/home/dds/workspace/httpd-2.2.25/srclib/apr-util/include -I/home/dds/workspace/httpd-2.2.25/srclib/apr-util/include/private  -I/usr/local/apr/include/apr-1  
+INCLUDES = -I/home/dds/workspace/httpd-2.2.25/srclib/apr-util/include -I/home/dds/workspace/httpd-2.2.25/srclib/apr-util/include/private -I/usr/include/mysql  -I/usr/local/apache2/include/apr-1  
 APRUTIL_LDFLAGS = 
-APRUTIL_LIBS = -lexpat /usr/local/apr/lib/libapr-1.la -lrt -lcrypt -lpthread
+APRUTIL_LIBS = -lexpat /usr/local/apache2/lib/libapr-1.la -lrt -lcrypt -lpthread
 
 TARGET_LIB = libaprutil-${APRUTIL_MAJOR_VERSION}.la
 INSTALL_SUBDIRS =  
@@ -22,7 +22,7 @@ APU_CONFIG = apu-$(APRUTIL_MAJOR_VERSION)-config
 INSTALL = /usr/bin/install -c
 INSTALL_DATA = ${INSTALL} -m 644
 
-APU_MODULES = 
+APU_MODULES =   dbd/apr_dbd_mysql.la
 LINK_MODULE = $(LIBTOOL) $(LTFLAGS) --mode=link $(CC) $(LT_LDFLAGS) $(ALL_CFLAGS) $(ALL_LDFLAGS) $(APRUTIL_LDFLAGS) -release $(APRUTIL_MAJOR_VERSION) -module -rpath $(APU_DSO_LIBDIR)
 APU_DSO_LIBDIR = ${libdir}/apr-util-1
 
@@ -34,7 +34,7 @@ LDADD_dbd_pgsql =
 LDADD_dbd_oracle = 
 LDADD_dbd_sqlite2 = 
 LDADD_dbd_sqlite3 = 
-LDADD_dbd_mysql = 
+LDADD_dbd_mysql = -rdynamic -L/usr/lib/mysql          -lmysqlclient_r -rdynamic -L/usr/lib/mysql -lmysqlclient_r -lz -lpthread -lcrypt -lnsl -lm -lpthread -lssl -lcrypto
 LDADD_dbd_freetds = 
 LDADD_dbd_odbc = 
 LDADD_dbm_db = 
@@ -63,7 +63,7 @@ EXTRACLEAN_TARGETS = configure aclocal.m4 include/private/apu_config.h.in \
 	build/apr_common.m4 build/find_apr.m4 build/install.sh \
 	build/config.guess build/config.sub
 
-prefix=/usr/local/apr-util
+prefix=/usr/local/apache2
 exec_prefix=${prefix}
 bindir=${exec_prefix}/bin
 libdir=${exec_prefix}/lib
@@ -92,7 +92,7 @@ install: $(TARGETS) install-modules
 $(TARGET_LIB): $(OBJECTS) $(EXTRA_OBJECTS)
 	$(LINK) -rpath $(libdir) $(OBJECTS) $(EXTRA_OBJECTS) $(ALL_LIBS) $(APRUTIL_LDFLAGS) $(APRUTIL_LIBS)
 
-install-modules: install-modules-no
+install-modules: install-modules-yes
 
 install-modules-no:
 

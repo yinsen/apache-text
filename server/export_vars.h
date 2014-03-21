@@ -30,8 +30,6 @@ ap_chunk_filter_handle
 ap_http_outerror_filter_handle
 ap_byterange_filter_handle
 unixd_config
-apr_month_snames
-apr_day_snames
 apr_bucket_type_flush
 apr_bucket_type_eos
 apr_bucket_type_file
@@ -49,3 +47,5 @@ apr_bucket_type_socket
 apr_hook_global_pool
 apr_hook_debug_enabled
 apr_hook_debug_current
+apr_month_snames
+apr_day_snames

@@ -10,8 +10,8 @@
 "--enable-rewrite" \
 "--enable-deflate" \
 "--enable-proxy" \
-"--with-apr=/usr/local/apr" \
-"--with-apr-util=/usr/local/apr-util" \
+"--with-apr=/usr/local/apache2" \
+"--with-apr-util=/usr/local/apache2" \
 "--enable-cache" \
 "--enable-disk-cache" \
 "--enable-mem-cache" \

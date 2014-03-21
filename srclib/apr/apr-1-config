@@ -21,7 +21,7 @@
 APR_MAJOR_VERSION="1"
 APR_DOTTED_VERSION="1.4.8"
 
-prefix="/usr/local/apr"
+prefix="/usr/local/apache2"
 exec_prefix="${prefix}"
 bindir="${exec_prefix}/bin"
 libdir="${exec_prefix}/lib"

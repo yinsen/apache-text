@@ -8,7 +8,7 @@
 #define APU_DSO_BUILD 1
 
 /* Define to be absolute path to DSO directory */
-#define APU_DSO_LIBDIR "/usr/local/apr-util/lib/apr-util-1"
+#define APU_DSO_LIBDIR "/usr/local/apache2/lib/apr-util-1"
 
 /* Define if the inbuf parm to iconv() is const char ** */
 /* #undef APU_ICONV_INBUF_CONST */
@@ -63,7 +63,7 @@
 #define HAVE_MEMORY_H 1
 
 /* Define to 1 if you have the <mysql.h> header file. */
-/* #undef HAVE_MYSQL_H */
+#define HAVE_MYSQL_H 1
 
 /* Define to 1 if you have the <mysql/mysql.h> header file. */
 /* #undef HAVE_MYSQL_MYSQL_H */
@@ -75,10 +75,10 @@
 /* #undef HAVE_MYSQL_MY_SYS_H */
 
 /* Define to 1 if you have the <my_global.h> header file. */
-/* #undef HAVE_MY_GLOBAL_H */
+#define HAVE_MY_GLOBAL_H 1
 
 /* Define to 1 if you have the <my_sys.h> header file. */
-/* #undef HAVE_MY_SYS_H */
+#define HAVE_MY_SYS_H 1
 
 /* Define to 1 if you have the `nl_langinfo' function. */
 #define HAVE_NL_LANGINFO 1
@@ -166,9 +166,6 @@
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME ""
-
-/* Define to the home page for this package. */
-#define PACKAGE_URL ""
 
 /* Define to the version of this package. */
 #define PACKAGE_VERSION ""

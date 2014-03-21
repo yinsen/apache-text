@@ -1,4 +1,4 @@
-prefix=/usr/local/apr
+prefix=/usr/local/apache2
 exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
 APR_MAJOR_VERSION=1

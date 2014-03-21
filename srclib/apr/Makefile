@@ -56,7 +56,7 @@ EXTRACLEAN_TARGETS = configure aclocal.m4 include/arch/unix/apr_private.h.in \
 	build/argz.m4 build/libtool.m4 build/ltoptions.m4 \
 	build/ltsugar.m4 build/ltversion.m4 build/lt~obsolete.m4
 
-prefix=/usr/local/apr
+prefix=/usr/local/apache2
 exec_prefix=${prefix}
 bindir=${exec_prefix}/bin
 libdir=${exec_prefix}/lib
