@@ -1,6 +1,6 @@
 基于socket通信的并发连接设计，有多种模型设计
 1. 根据《Unix网络编程》中的描述，预分配多线程模式的进程控制时间开销最少，而在各种锁中，mutex方式比文件锁的效率要高
-2. 并发程序设计中，过多子进程/子线程的问题
+2. 并发程序设计中，过多子进程/子线程的问题 ———— 惊群问题
 3. 用一个子进程/线程池来服务客户时，客户请求在池内的分布问题
 4. Leader/Followers模式的问题：假如所有的服务线程都已经accept且正在处理请求，那么新的client发起connect时，虽然会被listen中的队列所接收，却无法被accept并处理。所以此时新client会发现请求的处理依旧有延迟。
 p642
@@ -9,10 +9,14 @@ p642
 		1. 单进程单线程accept，无进程调度消耗，但无法并发
 二、 并发模型
 		2. 多进程服务器
+			
 		3. 多线程服务器
 
 		4. (延迟)预分配多进程服务器：
 			1）Leader/Followers模式，无锁accept
+					多个子进程accept睡眠在同一个socket描述符上，当一个连接到来时，此socket的成员so_timeo变化会唤醒所有睡眠的子进程。（只有第一个被调度的进程获取连接）
+					这就是所谓的“惊群”问题。因为会唤醒所有的进程，所以会导致不必要的性能下降。子进程数越多，下降越多。
+					不过某些unix内核有wakeup_one函数，它只唤醒一个子进程，不会引起惊群。
 			2）Leader/Followers模式，文件锁accept
 			3）Leader/Followers模式，线程mutex锁accept
 			4）half-sync/half-async模式的accept。即由父进程向子进程传递socket描述符
@@ -82,8 +86,18 @@ p642
 				 }  
 三、 轮询模型
 		6. select/poll服务器
+				select是一个或多个进程同时监听多个fd。而只要有一个fd变化，则唤醒所有阻塞在此fd上的进程，可能会导致select的冲突问题。
+				1）因select增加了一个系统调用，且需要处理冲突，所以阻塞在select上不如直接阻塞在accept上。
+				2）防止拒绝服务攻击：服务器决不能阻塞于单个client相关的调用，这样会因一个恶意的用户而导致拒绝对其它合法用户提供服务。解决的办法就是用非阻塞的select，或多进程/线程
+				3）最后一个time_out参数表示select在所有fd都没有事件时循环等待的时间。
+					
+		7. pselect
+				select的posix标准，增加了一个信号量参数。
+				
+		8. poll：提供了与select相似的功能，但在用于流设备上时还会提供额外的信息。
+		
 四、 事件通知模型
-		7. epoll调用
+		9. epoll调用
 				原理：epoll相当于一个file，file的private_data域中维护了一个红黑树（eventpoll），此树为注册到epoll set的所有fd生成一个结点，这个结点包含fd指针以及相应的回调函数。
 				eventpoll有三个等待队列：wait，poll_wait以及rdlist （ready的fd list）
 				当epoll的wait队列返回时，相应有事件的epitem对应的回调函数ep_poll_callback就会将此结点的fd加入到readlist中；如果是LT方式，那么在从readlist中拿出来处理后还要插入到队列尾部？？？

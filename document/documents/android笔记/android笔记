@@ -1,3 +1,147 @@
+第一章  Android系统架构：
+
+一个应用，一个虚拟机实例，一个进程！！！
+
+每一个Android应用都运行在一个Dalvik虚拟机实例里，而每一个虚拟机实例都是一个独立的进程空间。每个进程之间可以通信（IPC，Binder机制实现）。虚拟机的线程机制，内存分配和管理，Mutex等等都是依赖底层操作系统而实现的。
+
+不同的应用在不同的进程空间里运行，当一个虚拟机关闭或意外中止时不会对其它 虚拟机造成影响，可以最大程度的保护应用的安全和独立运行。
+
+ Zygote是虚拟机实例的孵化器。AndroidRuntime.cpp中ZygoteInit.main()的执行会完成一个分裂，分裂出来的子进程继续初始化Java层的架构，这个分裂出来的进程就是system_server。每当系统要求执行一个Android应用程序，Zygote就会FORK出一个子进程来执行该应用程序。这样做的好处显而易见：Zygote进程是在系统启动时产生的，它会完成虚拟机的初始化，库的加载，预置类库的加载和初始化等等操作，而在系统需要一个新的虚拟机实例时，Zygote通过复制自身，最快速的提供个系统。另外，对于一些只读的系统库，所有虚拟机实例都和Zygote共享一块内存区域，大大节省了内存开销。
+
+
+
+第二章	Android系统启动过程
+	一、Linux kernel启动，一直到init进程启动。Init进程启动完成之后，还负责启动其他的一些重要守护进程，包括：
+        Usbd进程（USB Daemon）：USB连接后台进程，负责管理USB连接。
+        adbd 进程（Android Debug Bridge Daemon）：ADB连接后台进程，负责管理ADB连接。
+        debuggerd 进程(Debugger Daemon) ：调试器后台进程，负责管理调试请求及调试过程。
+        rild进程 (Radio Interface Layer Daemon)： 无线接口层后台进程，负责管理无线通信服务。
+        
+  二、ServiceManager启动
+  		Init进程启动ServiceManager.cpp作为system service的管理器。（相当于Powerparts的PLPMEServer）
+
+	三、主App进程zygote启动
+			Init进程启动Zygote进程作为所有App进程的父进程。(相当于Powerparts的PLPMEClient)
+			1. 首先创建AppRuntime，即AndroidRuntime，建立了一个Dalvik虚拟机。通过这个runtime传递com.android.internal.os.ZygoteInit参数
+					runtime.start("com.android.internal.os.ZygoteInit",startSystemServer);
+					
+			2. 此时Zygote的Dalvik开始启动。它将完成以下工作：
+				1)运行ZygoteInit.java的main()。加载资源与系统共享库，并开启Socket监听服务。
+				2)当收到创建Dalvik VM实例请求时，会使用COW（copy on write）方式fork一个新的Dalvik VM实例。
+
+	四、启动系统服务进程
+			1. Zygote fork启动Surface Flinger和Audio Flinger两个c++编写的native服务，注册到ServiceManager
+			2. Zygote fork启动Android的SystemService，包括硬件服务和系统框架核心平台服务，注册到ServiceManager。
+					列举system service：
+							ActivityManagerService					EntropyService										PowerManagerService
+							TelephonyRegistry								PackageManagerService							AccountManagerService
+							BatteryService									HardwareService										Watchdog
+							SensorService										BluetoothService									StatusBarService
+							ClipboardService								InputMethodManagerService					NetStatService
+							ConnectivityService							AccessibilityManagerService				NotificationManagerService
+							MountService										DeviceStorageMonitorService				LocationManagerService
+							SearchManagerService						FallbackCheckinService						WallpaperManagerService
+							AudioService										BackupManagerService							AppWidgetService
+		
+	五、启动Home Launcher
+			1. 当SystemService加载了所有的系统服务后就意味着系统就准备好了，它会向所有服务发送一个系统准备完毕（systemready） 广播。
+			2. ActivityManagerService 接收到systemready广播后，开始启动Launcher：向Zygoute进程请求一个新的Dalvik实例，然后ActivityManagerService在系统中查找具有<category android:name = "android.intent.category.HOME"/>属性的Activity，并启动它。ActivityManagerService就是用这样的方法启动Contact（联系人）应用程序。
+			3. LauncherApplication是Launcher进程，而Launcher是LauncherApplication的Activity。
+	
+	
+	
+第三章	Android应用程序
+	一、android.app.application定义了一个App，它维护App的全局状态数据。当在AndroidManifest.xml中配置application后，系统在launcher一个App时，就会实例化一个android.app.application.
+		android.app.application一般直接以singleton方式使用，不用再派生，当然有需要的话派生也可以（如LauncherApplication、EmailApplication）。
+		如果它需要用到context，则在application的构造函数中使用android.content.Context.getApplicationContext()获取。
+		
+	
+第四章	Android线程
+	一、ActivityThread即通常所说的UI线程、main线程。
+			1. 默认情况下，一个应用程序内的各个组件(如Activity、BroadcastReceiver、Service)都会在主线程中执行（因为只有一个应用Thread，所以只有一个loop、一个handler、一个msgqueue）。为了提高UI的响应速度，一般会启动新的HandlerThread来处理UI以外的事件。如果主线程超过5秒没有反应，将被系统kill。
+			2. 所有的View必须在主线程中执行onDraw()。如果需要长时间绘制，则需要使用SurfaceView来代替View，它将使用background Thread执行绘制过程
+			
+			
+
+
+
+
+
+第五章	Android对象
+	一、Andriod对象间通信
+			1. Activity之间的通信
+				1)startActivity(intent);运行过程中也可以用，只是需要在AndroidManifest.xml中将activity的launchMode设置singleInstance
+				2)
+			2. Activity与Service之间的通信
+				1)startService(intent)
+				2)在Activity中new一个BroadcastReceiver,实现onReceive()接口，然后在onCreate()中registerReceiver()。这样在service中就可以发送intent给Activity了，反之也一样。
+
+
+
+
+
+
+	Service
+	
+	Service的两种启动方式：
+		1)startService():将调用service的onCreate()，但会根据client提供的参数决定是否调用onStartCommand()。
+			多次startService()只会多次调用onStartCommand()。
+		2)bindService()：同样只会调用onCreate()，但不会调用onStartCommand()。
+			client执行bindService后，将可以从service的onBind()接口获取到IBinder对象。这样client就可以通过IBinder来调用service暴露出来的接口。
+			只要client到service的连接还在，则service将会持续运行，不管client是否还保留IBinder引用。
+			通常情况下，返回的IBinder都是一个用AIDL定义的复杂接口。
+	
+	Service运行的方式：
+		一个service只要显式start或被若干client bind，则它会一直运行下去。如果不是这两种状态，则onDestory()被调用。
+		
+		
+	Service结束的方式：
+		1) Context.stopService() 
+		2) stopSelf() : 软停止，即会处理完当前intent，再结束service
+
+	Service的访问方式：
+		1)只要service在AndroidManifest.xml中声明了，就会被系统强制对外提供服务。而如果外部的App需要访问此Service时，还需要在自己的AndroidManifest.xml中增加permission.
+		2)Service还可以通过先执行checkCallingPermission来阻止某些来自外部进程的调用。
+		
+	Service的优先级：
+		当系统内存不足需要回收时，service所在的进程的优先级如下：
+		1）在执行onCreate(),onStartCommand(),onDestroy()时，跟foreground进程优先级相同；
+		2）service在运行阶段时，它的优先级低于visible进程，高于not visible进程。
+				（因为一般只有很少的进程是处于visible状态，所以service所在进程一般都不会被kill）
+		3）如果有client进程连接到service，那service的优先级与最高的那个client相同。
+		4）一个已经启动的service可以用startForeground()来将自己置为visible优先级。
+
+
+	Service的重启问题：
+		当Service因系统内存不足被kill后，会在某个时期被重新启动。这样会有个很重要的问题：如果在onStartCommand()中启用了异步操作或多线程，则需要START_FLAG_REDELIVERY方式来通知系统在重启时重新发送一个intent，以继续执行之前未完成的动作。
+
+
+
+
+
+
+Activity显示大图片的节省内存方式：
+											BitmapFactory.Options opt = new BitmapFactory.Options();
+		1. 最省内存方式：		opt.inPreferredConfig = Bitmap.Config.RGB_565;
+											opt.inPurgeable = true;//设为true表示当系统要内存的时候，可以回收它
+		2. 共享方式存储图片：	opt.inInputShareable=true;可以让bitmap共享他人的数据
+
+
+		3. 尽量不要使用setImageBitmap或setImageResource或BitmapFactory.decodeResource来设置一张大图，
+		因为这些函数在完成decode后，最终都是通过java层的createBitmap来完成的，需要消耗更多内存。
+		因此，改用先通过BitmapFactory.decodeStream方法，创建出一个bitmap，再将其设为ImageView的 source，
+		decodeStream最大的秘密在于其直接调用JNI>>nativeDecodeAsset()来完成decode，
+				另外，decodeStream直接拿的图片来读取字节码了， 不会根据机器的各种分辨率来自动适应，
+		使用了decodeStream之后，需要在hdpi和mdpi，ldpi中配置相应的图片资源，
+		否则在不同分辨率机器上都是同样大小（像素点数量），显示出来的大小就不对了。
+
+		4. Bitmap对象在不使用时,我们应该先调用recycle()释放内存，然后才它设置为null.虽然recycle()从源码上看，调用它应该能立即释放Bitmap的主要内存，但是测试结果显示它并没能立即释放内存。但是我它应该还是能大大的加速Bitmap的主要内存的释放。
+		
+		5. 构造Adapter时，要使用缓存的 convertView
+		
+		
+		
+		
 
 软件开发总体组成：
 一、
