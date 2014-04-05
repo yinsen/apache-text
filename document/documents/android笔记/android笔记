@@ -65,7 +65,7 @@
 			跟PowerParts不同，Android的应用程序来自外部，如果使用传统的IPC机制，无法阻止恶意程序的恶意服务访问。因为传统IPC都是在上层协议中处理安全性问题。而Android Binder会为每一个应用生成一个UID来标识它，
 			
 		2. Binder的实现
-			1）Binder是Android在Linux kernel新增的一种IPC机制，使用面向对象的方式实现。
+			1）Binder是Android在Linux kernel新增的一种IPC机制，Binder驱动使用C语言开发，但对外提供面向对象的接口。
 			2）Binder是存在于Server进程中的一个实体对象，而Binder对象的句柄却会作为一个proxy放置在Client进程中。Client通过这个bind proxy，用类似引用本地对象的方式，来引用Server端的Binder对象，访问其函数（如发送服务请求等）。
 			3）Binder对象实体位于一个进程中（server），而它的proxy却可以位于多个Client进程中。Binder模糊了进程边界，淡化了进程间通信过程，整个系统仿佛运行于同一个面向对象的程序之中。形形色色的Binder对象以及星罗棋布的引用仿佛粘接各个应用程序的胶水，这也是Binder 在英文里的原意。
 	
@@ -82,16 +82,30 @@
 
 第五章	Android对象
 	一、Andriod对象间通信
-			1. Activity之间的通信
+			两种Intent：
+			从原理的角度来说，本质上都是通过Binder把信息传递给ActivityManagerService进程，再由ActivityManagerService转发
+			1. startActivity & startService中的Intent
 				1)startActivity(intent);运行过程中也可以用，只是需要在AndroidManifest.xml中将activity的launchMode设置singleInstance
-				2)
-			2. Activity与Service之间的通信
-				1)startService(intent)
-				2)在Activity中new一个BroadcastReceiver,实现onReceive()接口，然后在onCreate()中registerReceiver()。这样在service中就可以发送intent给Activity了，反之也一样。
+				2)startService(intent)
+			2. broadcastor Intent：
+				通用的Intent收发接口，可以用于各种对象间的消息收发：
+				1）消息发送接口：
+						context.sendBroadcast	用于发送并行广播
+						context.sendStickyBroadcast	用于发送粘性广播
+						context.sendOrderedBroadcast	用于发送串行广播
+				
+				2)消息接收接口：BroadcastReceiver
+				当需要一个Activity或一个Service作为接收器时，可在Activity/Service中new一个BroadcastReceiver,实现onReceive()接口，然后在onCreate()中registerReceiver()。这样在Activity/Service中就可以接收intent了.
 
 
-
-
+			3.	接收过程的实现：ActivityManagerService根据intent的参数在注册链表中找合适的Receiver，找到后，发送给对应的主线程ActivityThread。
+					在主线程的handlerMessage()中，找到对应的compont进行处理：
+					receiver = (BroadcastReceiver)cl.loadClass(component).newInstance();
+					receiver.onReceive(context.getReceiverRestrictedContext(), data.intent);
+	
+			4.	AIDL
+					类似于对象间的远程过程调用。常用于Service对外提供服务接口。
+			
 
 
 	Service
@@ -178,6 +192,34 @@ Activity显示大图片的节省内存方式：
 						 当屏幕density=160时，使用mdpi标签的资源 
 						 当屏幕density=120时，使用ldpi标签的资源。 
 			4. sp: scaled pixels(放大像素). 主要用于字体显示best for textsize。
+
+	三、	UI类
+					1）ViewParents：定义了一个view的parents必须实现的接口
+					2）ViewManager：定义了操作子view的接口（add或remove子view到Activity上）
+					3）LayoutParams：被view用来告知它们的parents，它们希望怎么样布局。最基础的LayoutParams只有长宽两个参数。而Fill_parents为父view减padding
+					4）ViewGroup：定义了一个可以拥有子view的view，它是其它Layouts的父类。
+					
+					4）Layout：用于管理Text在屏幕上的布局，可编辑文本用DynamicLayout，静态文本用StaticLayout
+					5）
+
+	四、	从Activity到View
+			Activity有一个ViewManager的子类WindowManager用于管理所有的view&viewgroup
+			Activity还有一个Window表示一个显示在WindowManager上面的top view，它有着一个UI window的标准配置：title，background，key process等。
+			一个独立的ViewGroup要想在界面上显示，就必须用window.setContentView(view)将view 放置到作为top view的window中。
+
+
+
+
+第八章	具体的一些UI控件
+	一、Tab效果的实现：
+		主要用到TabActivity、TabHost、TabWidget。其中开发者主要通过操作TabHost的接口来处理整个Tab界面。
+		TabHost是FrameLayout的子类，用FrameLayout来处理内容的分页；并用TabWidget来显示labels。
+
+
+
+
+
+
 
 第六章	Android系统的内存分配和查看
 
@@ -462,7 +504,9 @@ android:layout_centerInParent=”true”
 android:layout_weight=”1″
 （一） android:layout_height = "fill_parent"
 （二） android:layout_height = "wrap_content"
-在（一）、（二）2种情况在相同的android:layout_weight属性下呈现出正好相反的情况。
-
+在（一）、（二）2种情况在相同的android:layout_weight属性下呈现出正好相反的情况。因为：
+1）在layout_width設置為fill_parent的時候，layout_weight所代表的是你的控件要優先盡可能的大,但這個大是有限度的，即fill_parent.
+2）在layout_width設置為wrap_content的時候，layout_weight所代表的是你的控件要優先盡可能的小,但這個小是有限度的，即wrap_content.
+layout_height 同 layout_width.
 
 
