@@ -1,0 +1,91 @@
+一、什么情况下需要使用JNI
+		1. 标准java类库没有提供所需要的功能，通常这些功能是具体系统相关的；
+		2. 希望使用一些c、c++编写的已经有的类库或者API；
+		3. 对性能要求比较苛刻；
+	
+二、JNI的缺点：
+		1. 使用它会失去可移植性；
+	
+三、JNI的实现机制：
+		1. Native方法是以库文件（.so或.dll）形式存在。所以为java程序添加jni机制，就相当于为jvm多链接了一个库；
+		2. 
+	
+四、如何使用JNI：
+		1. 需要在Java的类中声明所调用的库，以及对将要调用的方法做本地声明(无需实现)：
+				class HelloWorld 
+				{ 
+					public native void get(); 
+					public native void set(int num); 
+		
+					static { 
+						System.loadLibrary("hello"); 
+					} 
+
+					public static void main(String[] args) { 
+						new HelloWorld().get(); 
+					} 
+
+				}  
+				
+		2. 编译java文件，得.class文件，再用JAVAH命令处理此class文件，就会得到对应的.h文件：
+				1）注意native的函数名与下面JNI形式函数原型的函数名的对应：JAVA_ + package路径 + 函数名
+						JNIEXPORT jint JNICALL Java_testdll_get (JNIEnv *, jclass); 
+					和
+						JNIEXPORT void JNICALL Java_testdll_set (JNIEnv *, jclass, jint); 
+				2）c函数实现时，只需要关心原有函数的参数。并且其中jint就可以看作int，如何对应到具体系统的int不用关心。
+				3）另外两个默认参数：第一个参数JNIEnv* 是指向JNIEnv结构的。这个结构是用来调用JNI函数的。
+				第二个参数jclass的意义，要看方法是不是静态的（static）或者实例（Instance）的。前者，jclass代表一个类对象的引用，而后者是被调用的方法所属对象的引用。
+				
+		3. 用c/c++实现.h文件中的函数原型，并编译链接成库文件。这样java程序就可以调用jni接口了。
+				（可以将库文件放到调用它的.class文件的路径下面。如果库文件放在另外的路径下，需要更改System.loadLibrary("hello")中的路径。）
+				
+				.cpp文件：
+				
+						#include \"testdll.h\" 
+
+						int i = 0; 
+						JNIEXPORT jint JNICALL Java_testdll_get (JNIEnv *, jclass) 
+						{ 
+							return i; 
+						} 
+						JNIEXPORT void JNICALL Java_testdll_set (JNIEnv *, jclass, jint j) 
+						{ 
+							i = j; 
+						} 
+				
+		4. 如何实现从java到c的参数类型转换。
+				1）c/cpp文件中实现的native函数的参数都是JNI本地类型（如下表中j开头的类型）。JNI本地类型实际就是c/c++类型，只是做了一层抽象
+				2）对于java中Array类型的数据，转成c类型相对复杂，所JNIEnv* 提供了两个接口专门用于转换数组：
+						a)GetXXXArrayElements：用于操作java的简单类型数组。把Java数组看成参数，返回一个指向对应的本地类型的数组的指针
+							？？？？？ 注意：需要调用ReleaseXXXArrayElements函数 ？？？？
+						b)GetObjectArrayElement：用于操作Java的对象类型数组
+						
+								
+				变量类型对应表：(如：jchar* 相当于 char*)
+				
+						Java类型 			本地类型(c/c++类型)	描述
+						boolean 			jboolean 					C/C++8位整型
+						byte 					jbyte 						C/C++带符号的8位整型
+						char 					jchar 						C/C++无符号的16位整型
+						short 				jshort 						C/C++带符号的16位整型
+						int 					jint 							C/C++带符号的32位整型
+						long 					jlong 						C/C++带符号的64位整型e
+						float 				jfloat 						C/C++32位浮点型
+						double 				jdouble 					C/C++64位浮点型
+						Object 				jobject 					任何Java对象，或者没有对应java类型的对象
+						Class 				jclass 						Class对象
+						String 				jstring 					字符串对象
+						Object[] 			jobjectArray 			任何对象的数组
+						boolean[] 		jbooleanArray 		布尔型数组
+						byte[] 				jbyteArray 				比特型数组
+						char[] 				jcharArray 				字符型数组
+						short[] 			jshortArray 			短整型数组
+						int[] 				jintArray 				整型数组
+						long[] 				jlongArray 				长整型数组
+						float[] 			jfloatArray 			浮点型数组
+						double[] 			jdoubleArray 			双浮点型数组
+
+
+				
+				
+				
