@@ -2,7 +2,9 @@
 一、整体结构：四大类的类对象
 		1. 抽象的形状：RectF，Rect等
 		2. 可绘制形状：具体的带draw的Shape，各种Shape的子类
-		3. 可绘制对象：Drawable及其子类。通常以Shape为属性，来指定可绘制对象的形状
+		3. 可绘制对象：Drawable及其子类。
+								 不同的drawable有不同的shape子对象，如ShapeDrawable有ShapeState.mShape,BitmapDrawable有BitmapState.mBitmap。
+								 这些子对象用来指定具体的绘制对象
 		4. 可绘制对象的集合：View，它把集合内的所有可绘制子对象Drawable、Shape组织起来，在draw()中用paint有序地绘制到目的canvas
 		
 		
