@@ -8,7 +8,6 @@
 	
 三、JNI的实现机制：
 		1. Native方法是以库文件（.so或.dll）形式存在。所以为java程序添加jni机制，就相当于为jvm多链接了一个库；
-		2. 
 	
 四、如何使用JNI：
 		1. 需要在Java的类中声明所调用的库，以及对将要调用的方法做本地声明(无需实现)：
@@ -69,7 +68,7 @@
 						char 					jchar 						C/C++无符号的16位整型
 						short 				jshort 						C/C++带符号的16位整型
 						int 					jint 							C/C++带符号的32位整型
-						long 					jlong 						C/C++带符号的64位整型e
+						long 					jlong 						C/C++带符号的64位整型
 						float 				jfloat 						C/C++32位浮点型
 						double 				jdouble 					C/C++64位浮点型
 						Object 				jobject 					任何Java对象，或者没有对应java类型的对象

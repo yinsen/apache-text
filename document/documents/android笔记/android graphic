@@ -1,0 +1,57 @@
+
+一、整体结构：四大类的类对象
+		1. 抽象的形状：RectF，Rect等
+		2. 可绘制形状：具体的带draw的Shape，各种Shape的子类
+		3. 可绘制对象：Drawable及其子类。通常以Shape为属性，来指定可绘制对象的形状
+		4. 可绘制对象的集合：View，它把集合内的所有可绘制子对象Drawable、Shape组织起来，在draw()中用paint有序地绘制到目的canvas
+		
+		
+二、一个完整View的绘制过程：（以下两种表示法，表示同一个流程）
+		1. 表示法A：
+				1） 在View中：（draw(canvas) & onDraw(canvas)的实现）:
+						if(只需绘制简单图形){
+								设定paint；
+								调用canvas.drawXXX();
+						}
+						else if(需要绘制drawable){
+								调用drawable的draw(canvas)；
+						}
+		
+				2） 在Drawable的draw(canvas)&onDraw(canvas)中：
+						if(drawable的形状是简单的XXX){
+								设定paint；
+								调用canvas.drawXXX();
+						}
+						else if(drawable的形状是一个特定的shape，无法直接用canvas.drawXXX()绘制){
+								调用具体shape的draw(canvas)；
+						}
+		
+				3） 在具体Shape的draw(canvas)中：
+						{
+								设定paint；
+								调用canvas.drawXXX();
+						}
+		
+		2. 表示法B：
+				1） 调用View的Draw()/onDraw()中：
+																	|_______________________________________________________
+									 (画drawable对象)|																		(View上直接画入canvas)|		
+																	V																											  V
+				2） 调用View中所有Drawable的draw()函数，继续传入canvas。					2. 直接在View的Draw()/onDraw()中，设定paint，具体实现到canvas的绘制
+																	|_______________________________________________________
+						(Drawable上画特定shape）|																 (Drawable直接画入canvas）|		
+																	V																											  V
+				3） 调用具体shape的draw()，继续传入canvas。											3. 直接在Drawable的Draw()/onDraw()中，设定paint，具体实现到canvas的绘制
+																	|
+			 (canvas中无对应drawXXX()方法)|			
+																	V
+				4） 设定paint，具体实现到canvas的绘制
+		
+		
+		
+		
+		
+		
+		
+		
+		
