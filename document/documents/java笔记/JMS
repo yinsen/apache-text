@@ -1,9 +1,0 @@
-
-
-
-消息中间件：JMS（Java Message Service）成为目前消息中间件事实上的标准。
-		1. 消息中间件有点对点的模式，也有发布/订阅模式。就相当于PowerParts的消息框架一样，是一个等待client连接的消息中转server，它提供消息的存储。Powerparts只是相当于点对点模式，还有发布/订阅模式，消息就不是缓存在queue中，而是存在Topic中。
-		2. 消息中间件与应用服务器之间的集成，就相当于socket服务器中增加了一个接收缓冲区，各个处理进程从此缓冲区中读取数据进行处理。
-		
-		应用较广的JMS有Apache的ActiveMQ，与JBoss自带的JBossMQ。当然也可以将ActiveMQ集成到JBoss中。
-		
