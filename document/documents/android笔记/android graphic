@@ -45,11 +45,20 @@
 																	V																											  V
 				3） 调用具体shape的draw()，继续传入canvas。											3. 直接在Drawable的Draw()/onDraw()中，设定paint，具体实现到canvas的绘制
 																	|
-			 (canvas中无对应drawXXX()方法)|			
+			 (canvas中无对应drawXXX()方法)|
 																	V
 				4） 设定paint，具体实现到canvas的绘制
 		
 		
+三、Bitmap
+		Bitmap就是直接显示的位图，而png、jpg都是一种图片压缩格式。
+		Bitmap实际存储在C++空间中，用JNI访问。在Java中构造一个Bitmap时，需要传入native bitmap的指针值。
+		1. Bitmap的config：
+				1）bitmap的四种位图：        
+						ALPHA_8				只有透明度，没有颜色，1个字节
+				    ARGB_4444   	表示A、R、G、B各4个bit，一个像素对应2个字节
+				    ARGB_8888   	表示A、R、G、B各8个bit，一个像素对应4个字节
+				    RGB_565     	表示R、G、B各5、6、5个bit，一个像素对应2个字节
 		
 		
 		

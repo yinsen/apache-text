@@ -353,7 +353,6 @@ apr_memnode_t *allocator_alloc(apr_allocator_t *allocator, apr_size_t in_size)
 
             return node;
         }
-
 #if APR_HAS_THREADS
         if (allocator->mutex)
             apr_thread_mutex_unlock(allocator->mutex);
@@ -413,6 +412,7 @@ void allocator_free(apr_allocator_t *allocator, apr_memnode_t *node)
     max_free_index = allocator->max_free_index;
     current_free_index = allocator->current_free_index;
 
+   
     /* Walk the list of submitted nodes and free them one by one,
      * shoving them in the right 'size' buckets as we go.
      */
